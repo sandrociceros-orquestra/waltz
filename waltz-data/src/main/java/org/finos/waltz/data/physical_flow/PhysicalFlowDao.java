@@ -20,12 +20,29 @@ package org.finos.waltz.data.physical_flow;
 
 import org.finos.waltz.data.InlineSelectFieldFactory;
 import org.finos.waltz.data.enum_value.EnumValueDao;
-import org.finos.waltz.model.*;
+import org.finos.waltz.model.EntityKind;
+import org.finos.waltz.model.EntityLifecycleStatus;
+import org.finos.waltz.model.EntityReference;
+import org.finos.waltz.model.UserTimestamp;
 import org.finos.waltz.model.enum_value.EnumValueKind;
-import org.finos.waltz.model.physical_flow.*;
+import org.finos.waltz.model.physical_flow.CriticalityValue;
+import org.finos.waltz.model.physical_flow.FrequencyKindValue;
+import org.finos.waltz.model.physical_flow.ImmutablePhysicalFlow;
+import org.finos.waltz.model.physical_flow.ImmutablePhysicalFlowInfo;
+import org.finos.waltz.model.physical_flow.PhysicalFlow;
+import org.finos.waltz.model.physical_flow.PhysicalFlowInfo;
+import org.finos.waltz.model.physical_flow.PhysicalFlowParsed;
+import org.finos.waltz.model.physical_flow.TransportKindValue;
 import org.finos.waltz.schema.tables.PhysicalSpecDataType;
 import org.finos.waltz.schema.tables.records.PhysicalFlowRecord;
-import org.jooq.*;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record;
+import org.jooq.Record1;
+import org.jooq.RecordMapper;
+import org.jooq.Select;
+import org.jooq.TableField;
 import org.jooq.impl.DSL;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,7 +63,9 @@ import static org.finos.waltz.common.ListUtilities.newArrayList;
 import static org.finos.waltz.data.logical_flow.LogicalFlowDao.LOGICAL_NOT_REMOVED;
 import static org.finos.waltz.model.EntityLifecycleStatus.REMOVED;
 import static org.finos.waltz.model.EntityReference.mkRef;
-import static org.finos.waltz.schema.Tables.*;
+import static org.finos.waltz.schema.Tables.DATA_TYPE;
+import static org.finos.waltz.schema.Tables.EXTERNAL_IDENTIFIER;
+import static org.finos.waltz.schema.Tables.PHYSICAL_SPEC_DATA_TYPE;
 import static org.finos.waltz.schema.tables.LogicalFlow.LOGICAL_FLOW;
 import static org.finos.waltz.schema.tables.PhysicalFlow.PHYSICAL_FLOW;
 import static org.finos.waltz.schema.tables.PhysicalSpecification.PHYSICAL_SPECIFICATION;
@@ -61,6 +80,7 @@ public class PhysicalFlowDao {
         PhysicalFlowRecord record = r.into(PHYSICAL_FLOW);
         return ImmutablePhysicalFlow.builder()
                 .id(record.getId())
+                .name(record.getName())
                 .provenance(record.getProvenance())
                 .specificationId(record.getSpecificationId())
                 .basisOffset(record.getBasisOffset())
@@ -75,7 +95,7 @@ public class PhysicalFlowDao {
                 .lastAttestedBy(Optional.ofNullable(record.getLastAttestedBy()))
                 .lastAttestedAt(Optional.ofNullable(record.getLastAttestedAt()).map(Timestamp::toLocalDateTime))
                 .isRemoved(record.getIsRemoved())
-                .externalId(Optional.ofNullable(record.getExternalId()))
+                .externalId(record.getExternalId())
                 .entityLifecycleStatus(EntityLifecycleStatus.valueOf(record.getEntityLifecycleStatus()))
                 .created(UserTimestamp.mkForUser(record.getCreatedBy(), record.getCreatedAt()))
                 .isReadOnly(record.getIsReadonly())
@@ -177,7 +197,12 @@ public class PhysicalFlowDao {
 
     public List<PhysicalFlow> findByAttributesAndSpecification(PhysicalFlow flow) {
 
+        Condition nameCondition = flow.name() == null
+                ? PHYSICAL_FLOW.NAME.isNull()
+                :PHYSICAL_FLOW.NAME.eq(flow.name());
+
         Condition sameFlow = PHYSICAL_FLOW.SPECIFICATION_ID.eq(flow.specificationId())
+                .and(nameCondition)
                 .and(PHYSICAL_FLOW.BASIS_OFFSET.eq(flow.basisOffset()))
                 .and(PHYSICAL_FLOW.FREQUENCY.eq(flow.frequency().value()))
                 .and(PHYSICAL_FLOW.TRANSPORT.eq(flow.transport().value()))
@@ -282,6 +307,7 @@ public class PhysicalFlowDao {
         PhysicalFlowRecord record = dsl.newRecord(PHYSICAL_FLOW);
         record.setLogicalFlowId(flow.logicalFlowId());
 
+        record.setName(flow.name());
         record.setFrequency(flow.frequency().value());
         record.setTransport(flow.transport().value());
         record.setBasisOffset(flow.basisOffset());
@@ -296,7 +322,8 @@ public class PhysicalFlowDao {
         record.setLastAttestedAt(flow.lastAttestedAt().map(Timestamp::valueOf).orElse(null));
         record.setIsRemoved(flow.isRemoved());
         record.setProvenance("waltz");
-        record.setExternalId(flow.externalId().orElse(null));
+
+        flow.externalId().ifPresent(record::setExternalId);
 
         record.setCreatedAt(flow.created().map(UserTimestamp::atTimestamp).orElse(Timestamp.valueOf(flow.lastUpdatedAt())));
         record.setCreatedBy(flow.created().map(UserTimestamp::by).orElse(flow.lastUpdatedBy()));

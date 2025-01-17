@@ -19,15 +19,22 @@
 package org.finos.waltz.service.involvement;
 
 import org.finos.waltz.common.Checks;
+import org.finos.waltz.common.SetUtilities;
 import org.finos.waltz.data.EntityReferenceNameResolver;
 import org.finos.waltz.data.GenericSelector;
 import org.finos.waltz.data.GenericSelectorFactory;
 import org.finos.waltz.data.involvement.InvolvementDao;
 import org.finos.waltz.data.person.PersonDao;
-import org.finos.waltz.model.*;
+import org.finos.waltz.model.EntityKind;
+import org.finos.waltz.model.EntityReference;
+import org.finos.waltz.model.EntityReferenceUtilities;
+import org.finos.waltz.model.IdSelectionOptions;
+import org.finos.waltz.model.NameProvider;
+import org.finos.waltz.model.Operation;
 import org.finos.waltz.model.changelog.ChangeLog;
 import org.finos.waltz.model.changelog.ImmutableChangeLog;
-import org.finos.waltz.model.involvement.*;
+import org.finos.waltz.model.involvement.EntityInvolvementChangeCommand;
+import org.finos.waltz.model.involvement.Involvement;
 import org.finos.waltz.model.involvement_kind.InvolvementKind;
 import org.finos.waltz.model.person.Person;
 import org.finos.waltz.model.user.SystemRole;
@@ -44,11 +51,13 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static java.lang.String.format;
-import static org.finos.waltz.common.Checks.*;
-import static org.finos.waltz.common.FunctionUtilities.time;
+import static org.finos.waltz.common.Checks.checkNotEmpty;
+import static org.finos.waltz.common.Checks.checkNotNull;
+import static org.finos.waltz.common.Checks.checkTrue;
 import static org.finos.waltz.common.ListUtilities.applyToFirst;
 import static org.finos.waltz.common.ListUtilities.newArrayList;
 import static org.finos.waltz.common.SetUtilities.map;
+import static org.finos.waltz.common.StringUtilities.isEmpty;
 
 
 @Service
@@ -91,7 +100,7 @@ public class InvolvementService {
 
     public List<Involvement> findByEntityReference(EntityReference ref) {
         checkNotNull(ref, "ref cannot be null");
-        return time("IS.findByEntityReference", () -> involvementDao.findByEntityReference(ref));
+        return involvementDao.findByEntityReference(ref);
     }
 
 
@@ -120,7 +129,7 @@ public class InvolvementService {
 
     public List<Person> findPeopleByEntityReference(EntityReference ref) {
         checkNotNull(ref, "ref cannot be null");
-        return time("IS.findPeopleByEntityReference", () -> involvementDao.findPeopleByEntityReference(ref));
+        return involvementDao.findPeopleByEntityReference(ref);
     }
 
 
@@ -136,6 +145,7 @@ public class InvolvementService {
                                         EntityInvolvementChangeCommand command) {
 
         checkInvolvementKindIsUserSelectable(command);
+        checkHasEditPermissionForKind(Long.valueOf(command.involvementKindId()), userId);
 
         Involvement involvement = mkInvolvement(entityReference, command);
         boolean result = involvementDao.save(involvement) == 1;
@@ -149,7 +159,10 @@ public class InvolvementService {
     public boolean removeEntityInvolvement(String userId,
                                            EntityReference entityReference,
                                            EntityInvolvementChangeCommand command) {
+
         Involvement involvement = mkInvolvement(entityReference, command);
+        checkHasEditPermissionForKind(Long.valueOf(command.involvementKindId()), userId);
+
         boolean result = involvementDao.remove(involvement) > 0;
         if (result) {
             logChange(entityReference, userId, command);
@@ -296,5 +309,15 @@ public class InvolvementService {
 
     public Set<Involvement> findByKindIdAndEntityKind(long id, EntityKind kind) {
         return involvementDao.findByKindIdAndEntityKind(id, kind);
+    }
+
+
+    private void checkHasEditPermissionForKind(Long kindId, String username) {
+        InvolvementKind kind = involvementKindService.getById(kindId);
+        if (!isEmpty(kind.permittedRole())) {
+            checkTrue(
+                    userRoleService.hasAnyRole(username, SetUtilities.asSet(kind.permittedRole(), SystemRole.ADMIN.name())),
+                    format("User does not have the required permissions to edit involvement kind: '%s'", kind.name()));
+        }
     }
 }

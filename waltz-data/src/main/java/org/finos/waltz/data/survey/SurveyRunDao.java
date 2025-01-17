@@ -19,36 +19,56 @@
 package org.finos.waltz.data.survey;
 
 import org.finos.waltz.common.DateTimeUtilities;
-import org.finos.waltz.common.StringUtilities;
+import org.finos.waltz.data.involvement_group.InvolvementGroupDao;
 import org.finos.waltz.model.EntityKind;
 import org.finos.waltz.model.EntityReference;
 import org.finos.waltz.model.HierarchyQueryScope;
 import org.finos.waltz.model.IdSelectionOptions;
-import org.finos.waltz.model.survey.*;
+import org.finos.waltz.model.survey.ImmutableSurveyRun;
+import org.finos.waltz.model.survey.SurveyIssuanceKind;
+import org.finos.waltz.model.survey.SurveyRun;
+import org.finos.waltz.model.survey.SurveyRunChangeCommand;
+import org.finos.waltz.model.survey.SurveyRunCreateCommand;
+import org.finos.waltz.model.survey.SurveyRunStatus;
 import org.finos.waltz.schema.tables.records.SurveyRunRecord;
-import org.jooq.*;
+import org.jooq.DSLContext;
+import org.jooq.Record;
+import org.jooq.Record1;
+import org.jooq.Select;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
 import java.sql.Date;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
+import static java.util.Collections.emptyList;
 import static org.finos.waltz.common.Checks.checkNotNull;
 import static org.finos.waltz.common.DateTimeUtilities.toLocalDate;
 import static org.finos.waltz.common.DateTimeUtilities.toSqlDate;
-import static org.finos.waltz.common.StringUtilities.join;
-import static org.finos.waltz.common.StringUtilities.splitThenMap;
-import static org.finos.waltz.schema.Tables.*;
+import static org.finos.waltz.common.SetUtilities.fromCollection;
+import static org.finos.waltz.schema.Tables.INVOLVEMENT_GROUP_ENTRY;
+import static org.finos.waltz.schema.Tables.SURVEY_INSTANCE;
+import static org.finos.waltz.schema.Tables.SURVEY_INSTANCE_RECIPIENT;
+import static org.finos.waltz.schema.Tables.SURVEY_RUN;
 
 @Repository
 public class SurveyRunDao {
 
-    private static final String ID_SEPARATOR = ";";
+    private static final org.finos.waltz.schema.tables.InvolvementGroupEntry ige = INVOLVEMENT_GROUP_ENTRY.as("ige");
 
-    private static final RecordMapper<Record, SurveyRun> TO_DOMAIN_MAPPER = r -> {
+    private static SurveyRun mkSurveyRun(Record r, Map<Long, List<Long>> surveyInvolvementGroupKindIds) {
+
         SurveyRunRecord record = r.into(SURVEY_RUN);
+
+        Long recipientInvolvementGroupId = record.getRecipientInvolvementGroupId();
+        Long ownerInvolvementGroupId = record.getOwnerInvolvementGroupId();
+
+        List<Long> recipients = surveyInvolvementGroupKindIds.getOrDefault(recipientInvolvementGroupId, emptyList());
+        List<Long> owners = surveyInvolvementGroupKindIds.getOrDefault(ownerInvolvementGroupId, emptyList());
+
         return ImmutableSurveyRun.builder()
                 .id(record.getId())
                 .surveyTemplateId(record.getSurveyTemplateId())
@@ -59,10 +79,6 @@ public class SurveyRunDao {
                                 EntityKind.valueOf(record.getSelectorEntityKind()),
                                 record.getSelectorEntityId()),
                         HierarchyQueryScope.valueOf(record.getSelectorHierarchyScope())))
-                .involvementKindIds(splitThenMap(
-                        record.getInvolvementKindIds(),
-                        ID_SEPARATOR,
-                        Long::valueOf))
                 .issuedOn(Optional.ofNullable(record.getIssuedOn()).map(Date::toLocalDate))
                 .dueDate(record.getDueDate().toLocalDate())
                 .approvalDueDate(toLocalDate(record.getApprovalDueDate()))
@@ -70,13 +86,11 @@ public class SurveyRunDao {
                 .ownerId(record.getOwnerId())
                 .contactEmail(record.getContactEmail())
                 .status(SurveyRunStatus.valueOf(record.getStatus()))
-                .ownerInvKindIds(splitThenMap(
-                        record.getOwnerInvKindIds(),
-                        ID_SEPARATOR,
-                        Long::valueOf))
                 .isDefault(record.getIsDefault())
+                .involvementKindIds(fromCollection(recipients))
+                .ownerInvKindIds(fromCollection(owners))
                 .build();
-    };
+    }
 
 
     private final DSLContext dsl;
@@ -91,14 +105,21 @@ public class SurveyRunDao {
 
 
     public SurveyRun getById(long id) {
-        return dsl.select(SURVEY_RUN.fields())
+
+        Map<Long, List<Long>> surveyInvolvementGroupKindIds = InvolvementGroupDao.findAllInvolvementsByGroupId(dsl);
+
+        return dsl
+                .select(SURVEY_RUN.fields())
                 .from(SURVEY_RUN)
                 .where(SURVEY_RUN.ID.eq(id))
-                .fetchOne(TO_DOMAIN_MAPPER);
+                .fetchOne(r -> mkSurveyRun(r, surveyInvolvementGroupKindIds));
     }
 
 
     public List<SurveyRun> findForRecipient(long personId) {
+
+        Map<Long, List<Long>> surveyInvolvementGroupKindIds = InvolvementGroupDao.findAllInvolvementsByGroupId(dsl);
+
         return dsl
                 .select(SURVEY_RUN.fields())
                 .from(SURVEY_RUN)
@@ -107,11 +128,15 @@ public class SurveyRunDao {
                 .innerJoin(SURVEY_INSTANCE_RECIPIENT)
                 .on(SURVEY_INSTANCE_RECIPIENT.SURVEY_INSTANCE_ID.eq(SURVEY_INSTANCE.ID))
                 .where(SURVEY_INSTANCE_RECIPIENT.PERSON_ID.eq(personId))
-                .fetch(TO_DOMAIN_MAPPER);
+                .fetch(r -> mkSurveyRun(r, surveyInvolvementGroupKindIds));
     }
 
 
-    public long create(long ownerId, SurveyRunCreateCommand command) {
+    public long create(long ownerId,
+                       SurveyRunCreateCommand command,
+                       Optional<Long> recipientInvGroupId,
+                       Optional<Long> ownerInvGroupId) {
+
         checkNotNull(command, "command cannot be null");
 
         SurveyRunRecord record = dsl.newRecord(SURVEY_RUN);
@@ -121,14 +146,14 @@ public class SurveyRunDao {
         record.setSelectorEntityKind(command.selectionOptions().entityReference().kind().name());
         record.setSelectorEntityId(command.selectionOptions().entityReference().id());
         record.setSelectorHierarchyScope(command.selectionOptions().scope().name());
-        record.setInvolvementKindIds(join(command.involvementKindIds(), ID_SEPARATOR));
+        record.setRecipientInvolvementGroupId(recipientInvGroupId.orElse(null));
         record.setDueDate(toSqlDate(command.dueDate()));
         record.setApprovalDueDate(toSqlDate(command.approvalDueDate()));
         record.setIssuanceKind(command.issuanceKind().name());
         record.setOwnerId(ownerId);
         record.setContactEmail(command.contactEmail());
         record.setStatus(SurveyRunStatus.DRAFT.name());
-        record.setOwnerInvKindIds(join(command.ownerInvKindIds(), ID_SEPARATOR));
+        record.setOwnerInvolvementGroupId(ownerInvGroupId.orElse(null));
 
         record.store();
         return record.getId();
@@ -143,7 +168,9 @@ public class SurveyRunDao {
     }
 
 
-    public int update(long surveyRunId, SurveyRunChangeCommand command) {
+    public int update(long surveyRunId,
+                      SurveyRunChangeCommand command) {
+
         checkNotNull(command, "command cannot be null");
 
         return dsl
@@ -153,12 +180,10 @@ public class SurveyRunDao {
                 .set(SURVEY_RUN.SELECTOR_ENTITY_KIND, command.selectionOptions().entityReference().kind().name())
                 .set(SURVEY_RUN.SELECTOR_ENTITY_ID, command.selectionOptions().entityReference().id())
                 .set(SURVEY_RUN.SELECTOR_HIERARCHY_SCOPE, command.selectionOptions().scope().name())
-                .set(SURVEY_RUN.INVOLVEMENT_KIND_IDS, StringUtilities.join(command.involvementKindIds(), ID_SEPARATOR))
                 .set(SURVEY_RUN.DUE_DATE, command.dueDate().map(Date::valueOf).orElse(null))
                 .set(SURVEY_RUN.APPROVAL_DUE_DATE, command.approvalDueDate().map(Date::valueOf).orElse(null))
                 .set(SURVEY_RUN.ISSUANCE_KIND, command.issuanceKind().name())
                 .set(SURVEY_RUN.CONTACT_EMAIL, command.contactEmail().orElse(null))
-                .set(SURVEY_RUN.OWNER_INV_KIND_IDS, join(command.ownerInvKindIds(), ID_SEPARATOR))
                 .where(SURVEY_RUN.ID.eq(surveyRunId))
                 .execute();
     }
@@ -204,21 +229,60 @@ public class SurveyRunDao {
 
 
     public List<SurveyRun> findBySurveyInstanceIdSelector(Select<Record1<Long>> idSelector) {
+
+        Map<Long, List<Long>> surveyInvolvementGroupKindIds = InvolvementGroupDao.findAllInvolvementsByGroupId(dsl);
+
         return dsl
                 .selectDistinct(SURVEY_RUN.fields())
                 .from(SURVEY_RUN)
                 .join(SURVEY_INSTANCE).on(SURVEY_INSTANCE.SURVEY_RUN_ID.eq(SURVEY_RUN.ID))
                 .where(SURVEY_INSTANCE.ID.in(idSelector))
-                .fetch(TO_DOMAIN_MAPPER);
+                .fetch(r -> mkSurveyRun(r, surveyInvolvementGroupKindIds));
     }
 
 
     public List<SurveyRun> findByTemplateId(long templateId) {
+
+        Map<Long, List<Long>> surveyInvolvementGroupKindIds = InvolvementGroupDao.findAllInvolvementsByGroupId(dsl);
+
         return dsl
                 .select(SURVEY_RUN.fields())
                 .from(SURVEY_RUN)
                 .where(SURVEY_RUN.SURVEY_TEMPLATE_ID.eq(templateId))
-                .fetch(TO_DOMAIN_MAPPER);
+                .fetch(r -> mkSurveyRun(r, surveyInvolvementGroupKindIds));
+    }
+
+
+    public Long getOwnerInvolvementGroupId(long surveyRunId) {
+        return dsl
+                .select(SURVEY_RUN.OWNER_INVOLVEMENT_GROUP_ID)
+                .from(SURVEY_RUN)
+                .where(SURVEY_RUN.ID.eq(surveyRunId))
+                .fetchOne(SURVEY_RUN.OWNER_INVOLVEMENT_GROUP_ID);
+    }
+
+    public Long getRecipientInvolvementGroupId(long surveyRunId) {
+        return dsl
+                .select(SURVEY_RUN.RECIPIENT_INVOLVEMENT_GROUP_ID)
+                .from(SURVEY_RUN)
+                .where(SURVEY_RUN.ID.eq(surveyRunId))
+                .fetchOne(SURVEY_RUN.RECIPIENT_INVOLVEMENT_GROUP_ID);
+    }
+
+    public int updateOwnerInvolvementGroupId(long surveyRunId, Long ownerInvGroupId) {
+        return dsl
+                .update(SURVEY_RUN)
+                .set(SURVEY_RUN.OWNER_INVOLVEMENT_GROUP_ID, ownerInvGroupId)
+                .where(SURVEY_RUN.ID.eq(surveyRunId))
+                .execute();
+    }
+
+    public int updateRecipientInvolvementGroupId(long surveyRunId, Long recipientInvGroupId) {
+        return dsl
+                .update(SURVEY_RUN)
+                .set(SURVEY_RUN.RECIPIENT_INVOLVEMENT_GROUP_ID, recipientInvGroupId)
+                .where(SURVEY_RUN.ID.eq(surveyRunId))
+                .execute();
     }
 
 }

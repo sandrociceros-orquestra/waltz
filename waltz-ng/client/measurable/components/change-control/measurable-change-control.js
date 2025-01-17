@@ -23,8 +23,9 @@ import { toEntityRef } from "../../../common/entity-utils";
 import { determineColorOfSubmitButton } from "../../../common/severity-utils";
 import { buildHierarchies } from "../../../common/hierarchy-utils";
 import { displayError } from "../../../common/error-utils";
-import {getValidationErrorIfMeasurableChangeIsNotValid} from "../../measurable-change-utils";
+import { getValidationErrorIfMeasurableChangeIsNotValid } from "../../measurable-change-utils";
 import toasts from "../../../svelte-stores/toast-store";
+import ReorderMeasurables from "./ReorderMeasurables.svelte";
 
 
 const modes = {
@@ -36,6 +37,7 @@ const modes = {
 
 const bindings = {
     measurable: "<",
+    siblings: "<",
     changeDomain: "<",
     onSubmitChange: "<",
     pendingChanges: "<"
@@ -56,23 +58,28 @@ const initialState = {
     parent: null,
     root: rootNode,
     selectedOperation: null,
-    submitDisabled: true
+    submitDisabled: true,
+    ReorderMeasurables
 };
 
 
-function controller(serviceBroker,
+
+function controller($scope,
+                    serviceBroker,
                     userService) {
 
     const vm = initialiseData(this, initialState);
 
     function mkCmd(params = {}) {
+
         const paramProcessor = vm.selectedOperation.paramProcessor || _.identity;
+        const processedParam = paramProcessor(params);
 
         return {
             changeType: vm.selectedOperation.code,
             changeDomain: toEntityRef(vm.changeDomain),
             primaryReference: toEntityRef(vm.measurable),
-            params: paramProcessor(params),
+            params: processedParam,
             createdBy: vm.userName,
             lastUpdatedBy: vm.userName
         };
@@ -83,7 +90,7 @@ function controller(serviceBroker,
     }
 
     function mkPreviewCmd() {
-        return mkCmd();
+        return mkCmd(vm.commandParams);
     }
 
     function calcPreview() {
@@ -123,7 +130,8 @@ function controller(serviceBroker,
                 },
                 onChange: () => {
                     vm.submitDisabled = vm.commandParams.name === vm.measurable.name;
-                }
+                },
+                paramProcessor: (d) => Object.assign(d, {originalValue: vm.measurable.name})
             }, {
                 name: "Description",
                 code: "UPDATE_DESCRIPTION",
@@ -136,7 +144,8 @@ function controller(serviceBroker,
                 },
                 onChange: () => {
                     vm.submitDisabled = vm.commandParams.description === vm.measurable.description;
-                }
+                },
+                paramProcessor: (d) => Object.assign(d, {originalValue: vm.measurable.description})
             }, {
                 name: "Concrete",
                 code: "UPDATE_CONCRETENESS",
@@ -150,7 +159,8 @@ function controller(serviceBroker,
                     resetForm({ concrete: !vm.measurable.concrete });
                     vm.submitDisabled = false;
                     calcPreview();
-                }
+                },
+                paramProcessor: (d) => Object.assign(d, {originalValue: vm.measurable.concrete})
             }, {
                 name: "External Id",
                 code: "UPDATE_EXTERNAL_ID",
@@ -164,7 +174,8 @@ function controller(serviceBroker,
                 },
                 onChange: () => {
                     vm.submitDisabled = vm.commandParams.externalId === vm.measurable.externalId;
-                }
+                },
+                paramProcessor: (d) => Object.assign(d, {originalValue: vm.measurable.externalId})
             }, {
                 name: "Move",
                 code: "MOVE",
@@ -190,9 +201,36 @@ function controller(serviceBroker,
                     resetForm();
                 },
                 paramProcessor: (d) => ({
+                    originalValue: vm.parent.name,
                     destinationId: d.destination.id,
                     destinationName: d.destination.name
                 })
+            }, {
+                name: "Reorder Siblings",
+                code: "REORDER_SIBLINGS",
+                icon: "random",
+                description: `Taxonomy items are naturally sorted alphabetically.  You may override this sorting to
+                    provide a closer alignment with the underlying domain`,
+                onChange: (newList) => {
+                    $scope.$applyAsync(() => {
+                        vm.submitDisabled = false;
+                        vm.commandParams.list = newList;
+                    });
+                },
+                onReset: () => {
+                    vm.submitDisabled = true;
+                    vm.commandParams.list = [];
+                },
+                onShow: () => {
+                    resetForm();
+                },
+                paramProcessor: (commandParams) => {
+                    return {
+                        originalValue: JSON.stringify(_.map(vm.siblings, d => d.name)),
+                        list: JSON.stringify(_.map(commandParams.list, d => d.id)),
+                        listAsNames: JSON.stringify(_.map(commandParams.list, d => d.name))
+                    }
+                }
             }
         ]
     };
@@ -241,6 +279,45 @@ function controller(serviceBroker,
                 should be used with care`,
         color: "#b40400",
         options: [
+            {
+                name: "Merge",
+                code: "MERGE",
+                icon: "code-fork",
+                description: "Merges this item with another and all of it's children will be migrated",
+                onShow: () => {
+                    resetForm();
+                    calcPreview();
+                },
+                paramProcessor: (d) => _.isEmpty(d)
+                    ? {}
+                    : ({
+                        targetId: d.target.id,
+                        targetName: d.target.name
+                    }),
+                onReset: () => {
+                    vm.commandParams.target = null;
+                    vm.submitDisabled = true;
+                },
+                onChange: (target) => {
+                    if (target === null) {
+                        toasts.warning("Must have selected a arget to merge, ignoring....");
+                        vm.commandParams.target = null;
+                        vm.submitDisabled = true;
+                    } else if (target.id === vm.measurable.id) {
+                        toasts.warning("Cannot merge onto yourself, ignoring....");
+                        vm.commandParams.target = null;
+                        vm.submitDisabled = true;
+                    } else if (vm.measurable.concrete && !target.concrete) {
+                        toasts.warning("Cannot migrate to a non-concrete node, ignoring....");
+                        vm.commandParams.target = null;
+                        vm.submitDisabled = true;
+                    } else {
+                        vm.commandParams.target = target;
+                        vm.submitDisabled = false;
+                        calcPreview();
+                    }
+                }
+            },
             {
                 name: "Remove",
                 code: "REMOVE",
@@ -323,6 +400,7 @@ function controller(serviceBroker,
 
 
 controller.$inject = [
+    "$scope",
     "ServiceBroker",
     "UserService"
 ];

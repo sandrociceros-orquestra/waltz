@@ -11,7 +11,7 @@ import org.immutables.value.Value;
 @JsonDeserialize(as = ImmutableReportGridMemberDeleteCommand.class)
 public abstract class ReportGridMemberDeleteCommand implements Command {
 
-    public abstract String userId();
-    public abstract ReportGridMemberRole role();
+    public abstract long gridId();
 
+    public abstract String userId();
 }

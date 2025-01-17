@@ -19,24 +19,49 @@
 package org.finos.waltz.service.attestation;
 
 
-import org.finos.waltz.service.email.EmailService;
+import org.finos.waltz.data.EntityReferenceNameResolver;
 import org.finos.waltz.data.GenericSelector;
 import org.finos.waltz.data.GenericSelectorFactory;
 import org.finos.waltz.data.attestation.AttestationInstanceDao;
 import org.finos.waltz.data.attestation.AttestationInstanceRecipientDao;
 import org.finos.waltz.data.attestation.AttestationRunDao;
 import org.finos.waltz.data.involvement.InvolvementDao;
-import org.finos.waltz.model.*;
-import org.finos.waltz.model.attestation.*;
+import org.finos.waltz.model.EntityKind;
+import org.finos.waltz.model.EntityReference;
+import org.finos.waltz.model.IdCommandResponse;
+import org.finos.waltz.model.IdSelectionOptions;
+import org.finos.waltz.model.ImmutableIdCommandResponse;
+import org.finos.waltz.model.attestation.AttestEntityCommand;
+import org.finos.waltz.model.attestation.AttestationCreateSummary;
+import org.finos.waltz.model.attestation.AttestationInstance;
+import org.finos.waltz.model.attestation.AttestationInstanceRecipient;
+import org.finos.waltz.model.attestation.AttestationRun;
+import org.finos.waltz.model.attestation.AttestationRunCreateCommand;
+import org.finos.waltz.model.attestation.AttestationRunRecipient;
+import org.finos.waltz.model.attestation.AttestationRunResponseSummary;
+import org.finos.waltz.model.attestation.ImmutableAttestationCreateSummary;
+import org.finos.waltz.model.attestation.ImmutableAttestationInstance;
+import org.finos.waltz.model.attestation.ImmutableAttestationInstanceRecipient;
+import org.finos.waltz.model.attestation.ImmutableAttestationRunCreateCommand;
+import org.finos.waltz.model.involvement_group.ImmutableInvolvementGroup;
+import org.finos.waltz.model.involvement_group.ImmutableInvolvementGroupCreateCommand;
+import org.finos.waltz.model.involvement_group.InvolvementGroup;
+import org.finos.waltz.model.involvement_group.InvolvementGroupCreateCommand;
 import org.finos.waltz.model.person.Person;
+import org.finos.waltz.service.involvement_group.InvolvementGroupService;
 import org.jooq.Record1;
 import org.jooq.Select;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
-import java.util.*;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
+import static java.lang.String.format;
 import static java.util.stream.Collectors.groupingBy;
 import static java.util.stream.Collectors.toList;
 import static org.finos.waltz.common.Checks.checkNotNull;
@@ -55,27 +80,31 @@ public class AttestationRunService {
     private final AttestationInstanceDao attestationInstanceDao;
     private final AttestationInstanceRecipientDao attestationInstanceRecipientDao;
     private final AttestationRunDao attestationRunDao;
-    private final EmailService emailService;
+    private final EntityReferenceNameResolver entityReferenceNameResolver;
     private final GenericSelectorFactory genericSelectorFactory = new GenericSelectorFactory();
     private final InvolvementDao involvementDao;
+    private final InvolvementGroupService involvementGroupService;
 
     @Autowired
     public AttestationRunService(AttestationInstanceDao attestationInstanceDao,
                                  AttestationInstanceRecipientDao attestationInstanceRecipientDao,
                                  AttestationRunDao attestationRunDao,
-                                 EmailService emailService,
-                                 InvolvementDao involvementDao) {
+                                 EntityReferenceNameResolver entityReferenceNameResolver,
+                                 InvolvementDao involvementDao,
+                                 InvolvementGroupService involvementGroupService) {
         checkNotNull(attestationInstanceRecipientDao, "attestationInstanceRecipientDao cannot be null");
         checkNotNull(attestationInstanceDao, "attestationInstanceDao cannot be null");
         checkNotNull(attestationRunDao, "attestationRunDao cannot be null");
-        checkNotNull(emailService, "emailService cannot be null");
+        checkNotNull(entityReferenceNameResolver, "entityReferenceNameResolver cannot be null");
         checkNotNull(involvementDao, "involvementDao cannot be null");
+        checkNotNull(involvementGroupService, "involvementGroupService cannot be null");
 
         this.attestationInstanceDao = attestationInstanceDao;
         this.attestationInstanceRecipientDao = attestationInstanceRecipientDao;
         this.attestationRunDao = attestationRunDao;
-        this.emailService = emailService;
+        this.entityReferenceNameResolver = entityReferenceNameResolver;
         this.involvementDao = involvementDao;
+        this.involvementGroupService = involvementGroupService;
     }
 
 
@@ -141,6 +170,7 @@ public class AttestationRunService {
     public IdCommandResponse create(String userId, AttestationRunCreateCommand command) {
         // create run
         Long runId = attestationRunDao.create(userId, command);
+        createRecipientsGroup(runId, command.name(), command.involvementKindIds(), userId);
 
         // generate instances and recipients
         List<AttestationInstanceRecipient> instanceRecipients = generateAttestationInstanceRecipients(
@@ -150,10 +180,6 @@ public class AttestationRunService {
 
         // store
         createAttestationInstancesAndRecipients(instanceRecipients);
-
-        if (command.sendEmailNotifications()){
-            emailService.sendEmailNotification(mkRef(EntityKind.ATTESTATION_RUN, runId));
-        }
 
         return ImmutableIdCommandResponse.builder()
                 .id(runId)
@@ -260,9 +286,16 @@ public class AttestationRunService {
 
     private ImmutableAttestationRunCreateCommand mkCreateCommand(AttestEntityCommand createCommand) {
         //Note: Changing the name of this AttestationRunCreateCommand will cause the attestation-run-list to break see #5159
+
+        String description = createCommand.attestedEntityId() == null
+                ? format("Attests that all %ss are present and correct for this entity", createCommand.attestedEntityKind().prettyName())
+                : format(
+                    "Attests that all %s mappings are present and correct for this entity",
+                    resolveRefWithName(createCommand).flatMap(EntityReference::name).orElse("Unknown"));
+
         return ImmutableAttestationRunCreateCommand.builder()
                 .name("Entity Attestation")
-                .description("Attests that all flows are present and correct for this entity")
+                .description(description)
                 .targetEntityKind(EntityKind.APPLICATION)
                 .selectionOptions(mkOpts(createCommand.entityReference()))
                 .involvementKindIds(asSet())
@@ -271,6 +304,12 @@ public class AttestationRunService {
                 .issuedOn(LocalDate.now())
                 .dueDate(LocalDate.now().plusMonths(6))
                 .build();
+    }
+
+
+    private Optional<EntityReference> resolveRefWithName(AttestEntityCommand createCommand) {
+        EntityReference ref = mkRef(createCommand.attestedEntityKind(), createCommand.attestedEntityId());
+        return entityReferenceNameResolver.resolve(ref);
     }
 
 
@@ -290,10 +329,33 @@ public class AttestationRunService {
         Set<Long> runsBeingIssued = toIds(pendingRuns);
         attestationRunDao.updateStatusForRunIds(runsBeingIssued, ISSUING);
 
-        if(!isEmpty(instanceRecipients)){
+        if (!isEmpty(instanceRecipients)) {
             createAttestationInstancesAndRecipients(instanceRecipients);
         }
 
         return attestationRunDao.updateStatusForRunIds(runsBeingIssued, ISSUED);
+    }
+
+
+    public void createRecipientsGroup(long runId, String runName, Set<Long> involvementKindIds, String userName) {
+
+        InvolvementGroup group = ImmutableInvolvementGroup.builder()
+                .name(format("Recipients for attestation run: %s", runName))
+                .externalId(format("RECIPIENTS_ATTESTATION_RUN_%d", runId))
+                .build();
+
+        InvolvementGroupCreateCommand recipientsCmd = ImmutableInvolvementGroupCreateCommand
+                .builder()
+                .involvementGroup(group)
+                .involvementKindIds(involvementKindIds)
+                .build();
+
+        long recipientInvGroupId = involvementGroupService.createGroup(recipientsCmd, userName);
+        attestationRunDao.updateRecipientInvolvementGroupId(runId, recipientInvGroupId);
+    }
+
+
+    public Set<AttestationRunRecipient> findRunRecipients(long runId) {
+        return attestationRunDao.findRunRecipients(runId);
     }
 }

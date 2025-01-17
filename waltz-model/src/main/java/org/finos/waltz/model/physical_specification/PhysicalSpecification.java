@@ -42,7 +42,9 @@ public abstract class PhysicalSpecification implements
         DescriptionProvider,
         ProvenanceProvider,
         LastUpdatedProvider,
-        WaltzEntity {
+        WaltzEntity,
+        EntityKindProvider,
+        IsReadOnlyProvider {
 
     public abstract EntityReference owningEntity();
 
@@ -56,6 +58,10 @@ public abstract class PhysicalSpecification implements
                 .externalId(externalId())
                 .description(description())
                 .build();
+    }
+    @Value.Default
+    public EntityKind kind() {
+        return EntityKind.PHYSICAL_SPECIFICATION;
     }
 
 }

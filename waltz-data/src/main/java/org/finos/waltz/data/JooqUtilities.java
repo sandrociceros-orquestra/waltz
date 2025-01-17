@@ -18,9 +18,10 @@
 
 package org.finos.waltz.data;
 
-import org.finos.waltz.schema.tables.records.ChangeLogRecord;
+import org.finos.waltz.common.MapUtilities;
 import org.finos.waltz.common.SetUtilities;
 import org.finos.waltz.common.StringUtilities;
+import org.finos.waltz.model.CommonTableFields;
 import org.finos.waltz.model.EndOfLifeStatus;
 import org.finos.waltz.model.EntityKind;
 import org.finos.waltz.model.EntityReference;
@@ -29,19 +30,46 @@ import org.finos.waltz.model.tally.ImmutableOrderedTally;
 import org.finos.waltz.model.tally.ImmutableTally;
 import org.finos.waltz.model.tally.OrderedTally;
 import org.finos.waltz.model.tally.Tally;
-import org.jooq.*;
+import org.finos.waltz.schema.tables.records.ChangeLogRecord;
+import org.jooq.Batch;
+import org.jooq.CommonTableExpression;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record;
+import org.jooq.Record1;
+import org.jooq.Record2;
+import org.jooq.Record3;
+import org.jooq.RecordMapper;
+import org.jooq.SQL;
+import org.jooq.SQLDialect;
+import org.jooq.Select;
+import org.jooq.SelectHavingStep;
+import org.jooq.Table;
+import org.jooq.TableField;
+import org.jooq.TableRecord;
+import org.jooq.UpdatableRecord;
 import org.jooq.impl.DSL;
 
 import java.sql.Date;
 import java.sql.Timestamp;
-import java.util.*;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.StringJoiner;
 import java.util.function.Function;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
-import static java.util.stream.Collectors.*;
+import static java.util.Optional.ofNullable;
+import static java.util.stream.Collectors.counting;
+import static java.util.stream.Collectors.groupingBy;
+import static java.util.stream.Collectors.toList;
 import static org.finos.waltz.common.Checks.checkNotNull;
 import static org.finos.waltz.common.DateTimeUtilities.toLocalDate;
 import static org.finos.waltz.common.DateTimeUtilities.toSqlDate;
@@ -59,8 +87,7 @@ public class JooqUtilities {
     public static Optional<EntityReference> maybeReadRef(Record record,
                                                          Field<String> kindField,
                                                          Field<Long> idField) {
-        return Optional
-                .ofNullable(record.getValue(kindField))
+        return ofNullable(record.getValue(kindField))
                 .map(kindStr -> mkRef(
                         EntityKind.valueOf(kindStr),
                         record.getValue(idField)));
@@ -70,8 +97,7 @@ public class JooqUtilities {
                                                          Field<String> kindField,
                                                          Field<Long> idField,
                                                          Field<String> nameField) {
-        return Optional
-                .ofNullable(record.getValue(kindField))
+        return ofNullable(record.getValue(kindField))
                 .map(kindStr -> mkRef(
                         EntityKind.valueOf(kindStr),
                         record.getValue(idField),
@@ -212,8 +238,7 @@ public class JooqUtilities {
      * @return
      */
     public static <T> T safeGet(Record r, Field<T> f, T dflt) {
-        return Optional
-                .ofNullable(r.getValue(f))
+        return ofNullable(r.getValue(f))
                 .orElse(dflt);
     }
 
@@ -379,4 +404,105 @@ public class JooqUtilities {
         return IntStream.of(rcs).sum();
     }
 
+
+    public static CommonTableFields<?> determineCommonTableFields(EntityKind kind) {
+        return determineCommonTableFields(kind, null);
+    }
+
+
+    public static CommonTableFields<?> determineCommonTableFields(EntityKind kind, String alias) {
+        return CommonTableFieldsRegistry.determineCommonTableFields(kind, alias);
+    }
+
+
+    /**
+     * Given an entity kind and a qualifier kind, this will create a map allowing you to lookup references based on the
+     * external id's of all associated (active) entities which are also aligned to the qualifier reference.
+     * Empty external id's are skipped.
+     *
+     * @param dsl  connection to Waltz database
+     * @param entityKind primary entity type to return
+     * @param qualifierReference  used to restrict the primary entities
+     * @return  Map of external id to entity references
+     */
+    public static Map<String, EntityReference> loadExternalIdToEntityRefMap(DSLContext dsl,
+                                                                            EntityKind entityKind,
+                                                                            EntityReference qualifierReference) {
+        CommonTableFields<?> ctf = determineCommonTableFields(entityKind);
+
+        Condition qualifierCondition = qualifierReference == null || ctf.qualifierKindField() == null || ctf.qualifierIdField() == null
+            ? DSL.trueCondition()
+            : ctf.qualifierKindField().eq(qualifierReference.kind().name())
+                .and(ctf.qualifierIdField().eq(qualifierReference.id()));
+
+        return loadExternalIdToEntityRefMap(dsl, ctf, qualifierCondition);
+
+    }
+
+
+    /**
+     * Given an entity kind and a qualifier kind, this will create a map allowing you to lookup references based on the
+     * external id's of all associated (active) entities which are also aligned to the qualifier kind.
+     * Empty external id's are skipped.
+     *
+     * @param dsl  connection to Waltz database
+     * @param entityKind primary entity type to return
+     * @param qualifierKind  used to restrict the primary entities
+     * @return  Map of external id to entity references
+     */
+    public static Map<String, EntityReference> loadExternalIdToEntityRefMap(DSLContext dsl,
+                                                                            EntityKind entityKind,
+                                                                            EntityKind qualifierKind) {
+        CommonTableFields<?> ctf = determineCommonTableFields(entityKind);
+
+        Condition qualifierCondition = qualifierKind == null || ctf.qualifierKindField() == null
+            ? DSL.trueCondition()
+            : ctf.qualifierKindField().eq(qualifierKind.name());
+
+        return loadExternalIdToEntityRefMap(dsl, ctf, qualifierCondition);
+    }
+
+
+    /**
+     * Given an entity kind, this will create a map allowing you to lookup references based on the external id's
+     * of all associated (active) entities.  Empty external id's are skipped.
+     *
+     * @param dsl  connection to Waltz database
+     * @param entityKind
+     * @return  Map of external id to entity references
+     */
+    public static Map<String, EntityReference> loadExternalIdToEntityRefMap(DSLContext dsl,
+                                                                            EntityKind entityKind) {
+        CommonTableFields<?> ctf = determineCommonTableFields(entityKind);
+        return loadExternalIdToEntityRefMap(dsl, ctf, DSL.trueCondition());
+    }
+
+
+    private static Map<String, EntityReference> loadExternalIdToEntityRefMap(DSLContext dsl,
+                                                                             CommonTableFields<?> ctf,
+                                                                             Condition qualifierCondition) {
+        Set<EntityReference> results = dsl
+                .select(ctf.externalIdField(),
+                        ctf.idField(),
+                        ctf.nameField(),
+                        ctf.descriptionField())
+                .from(ctf.table())
+                .where(ctf.isActiveCondition())
+                .and(ctf.externalIdField().isNotNull())
+                .and(qualifierCondition)
+                .fetch()
+                .stream()
+                .map(r -> mkRef(
+                        ctf.entityKind(),
+                        r.get(ctf.idField()),
+                        r.get(ctf.nameField()),
+                        r.get(ctf.descriptionField()),
+                        r.get(ctf.externalIdField())))
+                .filter(d -> d.externalId().isPresent())
+                .collect(Collectors.toSet());
+
+        return MapUtilities.indexBy(
+                results,
+                d -> d.externalId().get());
+    }
 }

@@ -49,29 +49,38 @@ public class PhysicalSpecificationIdSelectorFactory implements IdSelectorFactory
     public Select<Record1<Long>> apply(IdSelectionOptions options) {
         checkNotNull(options, "options cannot be null");
         switch(options.entityReference().kind()) {
+            case ACTOR:
             case APPLICATION:
-                return mkForApplication(options);
+            case END_USER_APPLICATION:
+                return mkForSpecificNode(options);
             case PHYSICAL_FLOW:
                 return mkForPhysicalFlow(options);
             case LOGICAL_DATA_ELEMENT:
                 return mkForLogicalElement(options);
             case LOGICAL_DATA_FLOW:
                 return mkForLogicalFlow(options);
-            case FLOW_DIAGRAM:
-                return mkForFlowDiagram(options);
             case PHYSICAL_SPECIFICATION:
                 return mkForSpecification(options);
             case SERVER:
                 return mkForServer(options);
             case TAG:
                 return mkForTagBasedOnPhysicalFlowTags(options);
+            case ALL:
+            case APP_GROUP:
+            case DATA_TYPE:
+            case FLOW_DIAGRAM:
+            case ORG_UNIT:
+            case MEASURABLE:
+            case PERSON:
+            case PROCESS_DIAGRAM:
+                return mkViaPhysicalFlowSelector(options);
             default:
                 throw new UnsupportedOperationException("Cannot create physical specification selector from options: " + options);
         }
     }
 
 
-    private Select<Record1<Long>> mkForApplication(IdSelectionOptions options) {
+    private Select<Record1<Long>> mkForSpecificNode(IdSelectionOptions options) {
         SelectorUtilities.ensureScopeIsExact(options);
 
         Condition lifecycleCondition = options.entityLifecycleStatuses().contains(EntityLifecycleStatus.REMOVED)
@@ -92,7 +101,6 @@ public class PhysicalSpecificationIdSelectorFactory implements IdSelectorFactory
                 .innerJoin(LOGICAL_FLOW).on(PHYSICAL_FLOW.LOGICAL_FLOW_ID.eq(LOGICAL_FLOW.ID))
                 .where(isSourceOrTarget)
                 .and(lifecycleCondition);
-        ;
 
         SelectConditionStep<Record1<Long>> specsOwnedByApp = DSL
                 .select(PHYSICAL_SPECIFICATION.ID)
@@ -157,8 +165,7 @@ public class PhysicalSpecificationIdSelectorFactory implements IdSelectorFactory
     }
 
 
-    private Select<Record1<Long>> mkForFlowDiagram(IdSelectionOptions options) {
-        SelectorUtilities.ensureScopeIsExact(options);
+    private Select<Record1<Long>> mkViaPhysicalFlowSelector(IdSelectionOptions options) {
         Select<Record1<Long>> flowSelector = physicalFlowIdSelectorFactory.apply(options);
         Condition condition =
                 PHYSICAL_FLOW.ID.in(flowSelector)

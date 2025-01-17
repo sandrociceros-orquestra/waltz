@@ -1,16 +1,21 @@
 <script>
     import {dataTypeStore} from "../../svelte-stores/data-type-store";
-    import {buildHierarchies, doSearch, prepareSearchNodes} from "../hierarchy-utils";
+    import {buildHierarchies, doSearch, prepareSearchNodes, reduceToSelectedNodesOnly} from "../hierarchy-utils";
     import DataTypeTreeNode from "./DataTypeTreeNode.svelte";
     import SearchInput from "./SearchInput.svelte";
     import _ from "lodash";
+    import {flowClassificationStore} from "../../svelte-stores/flow-classification-store";
 
     export let multiSelect = false;
     export let nonConcreteSelectable = true;
     export let selectionFilter = () => true;
+    export let expanded = true;
+    export let dataTypeIds = [];
+    export let ratingCharacteristics = [];
+    export let usageCharacteristics = [];
+    export let showSearch = true;
 
-    const root = {name: "Root"};
-
+    const root = {name: "Root", isExpanded: true};
 
     function calcDisplayHierarchy(nodes, query) {
         const searchResult = _.map(
@@ -25,27 +30,50 @@
     }
 
     let dataTypesCall = dataTypeStore.findAll();
-    let expanded = true;
+    let classificationsCall = flowClassificationStore.findAll();
     let qry = "";
     let searchNodes = [];
     let dataTypes = [];
 
     $: dataTypes = $dataTypesCall.data;
-    $: searchNodes = prepareSearchNodes(dataTypes);
+
+    $: enrichedDataTypes = _.map(dataTypes, d => {
+        const ucs = _.get(usageCharacteristicsByDatatypeId, d.id);
+        const rcs = _.get(ratingCharacteristicsByDatatypeId, d.id);
+
+        if (rcs){
+            rcs.sourceOutboundClassification = _.get(classificationsByCode, rcs?.sourceOutboundRating);
+            rcs.targetInboundClassification = _.get(classificationsByCode, rcs?.targetInboundRating);
+        }
+
+        return Object.assign({}, d, {ratingCharacteristics: rcs, usageCharacteristics: ucs})
+    })
+
+    $: classifications = $classificationsCall?.data || [];
+    $: classificationsByCode = _.keyBy(classifications, d => d.code);
+    $: requiredNodes = _.isEmpty(dataTypeIds)
+        ? enrichedDataTypes
+        : reduceToSelectedNodesOnly(enrichedDataTypes, dataTypeIds);
+    $: searchNodes = prepareSearchNodes(requiredNodes);
     $: displayedHierarchy = calcDisplayHierarchy(searchNodes, qry);
+
+    $: ratingCharacteristicsByDatatypeId = _.keyBy(ratingCharacteristics, d => d.dataTypeId);
+    $: usageCharacteristicsByDatatypeId = _.keyBy(usageCharacteristics, d => d.dataTypeId);
 
 </script>
 
-<SearchInput bind:value={qry}/>
+{#if showSearch}
+    <SearchInput bind:value={qry}/>
+{/if}
 
-<div class="waltz-scroll-region-250">
+<div class:waltz-scroll-region-350={showSearch}>
     <DataTypeTreeNode {multiSelect}
                       {selectionFilter}
                       {nonConcreteSelectable}
                       isRoot={true}
                       node={root}
                       childNodes={displayedHierarchy}
-                      expanded={expanded}
+                      {expanded}
                       on:select/>
 </div>
 

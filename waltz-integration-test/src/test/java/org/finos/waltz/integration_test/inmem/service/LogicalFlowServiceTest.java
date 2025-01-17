@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Set;
 
 import static java.util.Collections.emptyList;
+import static java.util.Collections.emptySet;
 import static org.finos.waltz.common.CollectionUtilities.isEmpty;
 import static org.finos.waltz.common.ListUtilities.asList;
 import static org.finos.waltz.common.SetUtilities.asSet;
@@ -284,7 +285,7 @@ public class LogicalFlowServiceTest extends BaseInMemoryIntegrationTest {
                 .build();
 
         Set<LogicalFlow> noCreateCommands = lfSvc.addFlows(emptyList(), "addFlowTest");
-        assertEquals(emptyList(), noCreateCommands, "If no list provided returns empty list");
+        assertEquals(emptySet(), noCreateCommands, "If no list provided returns empty list");
 
         assertThrows(
                 IllegalArgumentException.class,
@@ -427,6 +428,29 @@ public class LogicalFlowServiceTest extends BaseInMemoryIntegrationTest {
 
         Collection<LogicalFlow> allUpstreams = lfSvc.findUpstreamFlowsForEntityReferences(asList(b, c));
         assertEquals(3, allUpstreams.size(), "Returns all upstreams but not downstreams");
+    }
+
+    @Test
+    public void updateReadOnlyTest() {
+        helper.clearAllFlows();
+
+        EntityReference a = appHelper.createNewApp("xyz-app", ouIds.a);
+        EntityReference b = appHelper.createNewApp("xyz-app-2", ouIds.a);
+
+        LogicalFlow logicalFlow = helper.createLogicalFlow(a, b);
+
+        LogicalFlow updatedFlow = lfSvc.updateReadOnly(logicalFlow.id().get(), true, "updateTestUser");
+        assertTrue(updatedFlow.isReadOnly());
+
+        updatedFlow = lfSvc.updateReadOnly(logicalFlow.id().get(), false, "updateTestUser");
+        assertFalse(updatedFlow.isReadOnly());
+
+        updatedFlow = lfSvc.updateReadOnly(122, true, "updateTestUser");
+        assertNull(updatedFlow);
+
+
+        updatedFlow = lfSvc.updateReadOnly(logicalFlow.id().get(), false, "updateTestUser");
+        assertFalse(updatedFlow.isReadOnly());
     }
 
 }

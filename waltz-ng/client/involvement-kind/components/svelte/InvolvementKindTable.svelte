@@ -10,6 +10,9 @@
     import SearchInput from "../../../common/svelte/SearchInput.svelte";
     import Icon from "../../../common/svelte/Icon.svelte";
     import {termSearch} from "../../../common";
+    import DropdownPicker
+        from "../../../report-grid/components/svelte/column-definition-edit-panel/DropdownPicker.svelte";
+    import {entity} from "../../../common/services/enums/entity";
 
     const Modes = {
         ADD: "ADD",
@@ -21,9 +24,26 @@
     let working = {
         name: null,
         description: null,
+        subjectKind: null,
+        externalId: null,
+        permittedRole: null
     }
 
     let searchStr = "";
+
+    let entityList = [
+        entity.ACTOR,
+        entity.APP_GROUP,
+        entity.APPLICATION,
+        entity.CHANGE_INITIATIVE,
+        entity.DATA_TYPE,
+        entity.END_USER_APPLICATION,
+        entity.MEASURABLE,
+        entity.MEASURABLE_CATEGORY,
+        entity.ORG_UNIT,
+        entity.PHYSICAL_FLOW,
+        entity.ROLE
+    ];
 
     $: involvementStatCall = involvementKindStore.findUsageStats();
     $: usageStats = _.orderBy($involvementStatCall?.data, d => _.toUpper(d.involvementKind.name));
@@ -71,6 +91,7 @@
         <tr>
             <th>Involvement Kind</th>
             <th>External ID</th>
+            <th>Transitive</th>
             <th>Usage Stats By Entity (Active / Removed People)</th>
         </tr>
         </thead>
@@ -82,6 +103,9 @@
                 </td>
                 <td>
                     {statInfo.involvementKind.externalId || "-"}
+                </td>
+                <td>
+                    {statInfo.involvementKind.transitive}
                 </td>
                 <td>
                     <InvolvementBreakdown breakdownStats={statInfo.breakdown}/>
@@ -127,9 +151,17 @@
                 Description of this Involvement Kind
             </div>
 
-            <button type="submit"
+            <DropdownPicker items={entityList}
+                            onSelect={d => working.subjectKind = d.key}
+                            defaultMessage="Select an entity kind for these involvements"
+                            selectedItem={_.find(entityList, d => d.key === working.subjectKind)}/>
+            <div class="help-block">
+                Entity kind these involvements are associated to
+            </div>
+
+            <button on:click|preventDefault={createNewInvolvementKind}
                     class="btn btn-success"
-                    disabled={working.name === null}>
+                    disabled={working.name === null || working.description == null || working.subjectKind == null}>
                 Save
             </button>
 

@@ -22,9 +22,18 @@ import org.finos.waltz.common.ListUtilities;
 import org.finos.waltz.data.application.ApplicationIdSelectorFactory;
 import org.finos.waltz.data.data_type.DataTypeIdSelectorFactory;
 import org.finos.waltz.model.EntityKind;
+import org.finos.waltz.model.FlowDirection;
 import org.finos.waltz.model.IdSelectionOptions;
+import org.finos.waltz.schema.tables.FlowClassification;
 import org.finos.waltz.web.WebUtilities;
-import org.jooq.*;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record;
+import org.jooq.Record1;
+import org.jooq.Result;
+import org.jooq.Select;
+import org.jooq.SelectConditionStep;
 import org.jooq.impl.DSL;
 import org.jooq.lambda.tuple.Tuple3;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,15 +44,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import static java.util.stream.Collectors.toList;
+import static org.finos.waltz.common.ListUtilities.isEmpty;
+import static org.finos.waltz.common.ListUtilities.newArrayList;
+import static org.finos.waltz.data.InlineSelectFieldFactory.mkExternalIdField;
+import static org.finos.waltz.data.InlineSelectFieldFactory.mkNameField;
+import static org.finos.waltz.model.EntityLifecycleStatus.REMOVED;
 import static org.finos.waltz.schema.Tables.*;
 import static org.finos.waltz.schema.tables.Application.APPLICATION;
 import static org.finos.waltz.schema.tables.LogicalFlow.LOGICAL_FLOW;
 import static org.finos.waltz.schema.tables.OrganisationalUnit.ORGANISATIONAL_UNIT;
-import static java.util.stream.Collectors.toList;
-import static org.finos.waltz.common.ListUtilities.isEmpty;
-import static org.finos.waltz.common.ListUtilities.newArrayList;
-import static org.finos.waltz.data.InlineSelectFieldFactory.mkNameField;
-import static org.finos.waltz.model.EntityLifecycleStatus.REMOVED;
 import static spark.Spark.post;
 
 
@@ -53,22 +63,40 @@ public class LogicalFlowExtractor extends CustomDataExtractor {
     private static final Field<String> SOURCE_NAME_FIELD = mkNameField(
             LOGICAL_FLOW.SOURCE_ENTITY_ID,
             LOGICAL_FLOW.SOURCE_ENTITY_KIND,
-            newArrayList(EntityKind.APPLICATION, EntityKind.ACTOR));
+            newArrayList(EntityKind.APPLICATION, EntityKind.ACTOR, EntityKind.END_USER_APPLICATION));
 
     private static final Field<String> TARGET_NAME_FIELD = mkNameField(
             LOGICAL_FLOW.TARGET_ENTITY_ID,
             LOGICAL_FLOW.TARGET_ENTITY_KIND,
-            newArrayList(EntityKind.APPLICATION, EntityKind.ACTOR));
+            newArrayList(EntityKind.APPLICATION, EntityKind.ACTOR, EntityKind.END_USER_APPLICATION));
+
+    private static final Field<String> SOURCE_EXT_ID_FIELD = mkExternalIdField(
+            LOGICAL_FLOW.SOURCE_ENTITY_ID,
+            LOGICAL_FLOW.SOURCE_ENTITY_KIND,
+            newArrayList(EntityKind.APPLICATION, EntityKind.ACTOR, EntityKind.END_USER_APPLICATION));
+
+    private static final Field<String> TARGET_EXT_ID_FIELD = mkExternalIdField(
+            LOGICAL_FLOW.TARGET_ENTITY_ID,
+            LOGICAL_FLOW.TARGET_ENTITY_KIND,
+            newArrayList(EntityKind.APPLICATION, EntityKind.ACTOR, EntityKind.END_USER_APPLICATION));
+    public static final Field<Long> LOGICAL_FLOW_ID = LOGICAL_FLOW.ID.as("Waltz Id");
 
     private static List<String> staticHeaders = newArrayList(
+            "Waltz Id",
             "Source",
             "Source Asset Code",
             "Source Org Unit",
             "Target",
             "Target Asset Code",
             "Target Org Unit",
+            "Flow External Id",
             "Data Type",
-            "Authoritativeness");
+            "Source Outbound Rating",
+            "Target Inbound Rating",
+            "Created At",
+            "Created By",
+            "Last Updated At",
+            "Last Updated By");
 
     private final ApplicationIdSelectorFactory applicationIdSelectorFactory = new ApplicationIdSelectorFactory();
     private final DataTypeIdSelectorFactory dataTypeIdSelectorFactory = new DataTypeIdSelectorFactory();
@@ -105,29 +133,6 @@ public class LogicalFlowExtractor extends CustomDataExtractor {
                 ? LOGICAL_FLOW_DECORATOR.DECORATOR_ENTITY_ID.in(dataTypeIdSelectorFactory.apply(options))
                 : DSL.trueCondition();
 
-        Field<Long> sourceFlowId = LOGICAL_FLOW.ID.as("sourceFlowId");
-        Field<Long> targetFlowId = LOGICAL_FLOW.ID.as("targetFlowId");
-
-        Select<Record1<Long>> sourceAppFlows = DSL.select(sourceFlowId)
-                .from(LOGICAL_FLOW)
-                .innerJoin(APPLICATION)
-                    .on(LOGICAL_FLOW.SOURCE_ENTITY_ID.eq(APPLICATION.ID))
-                .where(LOGICAL_FLOW.SOURCE_ENTITY_KIND.eq(EntityKind.APPLICATION.name()))
-                .and(APPLICATION.ID.in(appIdSelector));
-
-        Select<Record1<Long>> targetAppFlows = DSL.select(targetFlowId)
-                .from(LOGICAL_FLOW)
-                .innerJoin(APPLICATION)
-                    .on(LOGICAL_FLOW.TARGET_ENTITY_ID.eq(APPLICATION.ID))
-                .where(LOGICAL_FLOW.TARGET_ENTITY_KIND.eq(EntityKind.APPLICATION.name()))
-                .and(APPLICATION.ID.in(appIdSelector));
-
-        Field<String> sourceAssetCodeField = DSL
-                .when(LOGICAL_FLOW.SOURCE_ENTITY_KIND.eq(EntityKind.APPLICATION.name()),
-                        DSL.select(APPLICATION.ASSET_CODE)
-                                .from(APPLICATION)
-                                .where(APPLICATION.ID.eq(LOGICAL_FLOW.SOURCE_ENTITY_ID)));
-
         Field<String> sourceOrgUnitNameField = DSL
                 .when(LOGICAL_FLOW.SOURCE_ENTITY_KIND.eq(EntityKind.APPLICATION.name()),
                         DSL.select(ORGANISATIONAL_UNIT.NAME)
@@ -135,12 +140,6 @@ public class LogicalFlowExtractor extends CustomDataExtractor {
                                 .innerJoin(ORGANISATIONAL_UNIT)
                                     .on(ORGANISATIONAL_UNIT.ID.eq(APPLICATION.ORGANISATIONAL_UNIT_ID))
                                 .where(APPLICATION.ID.eq(LOGICAL_FLOW.SOURCE_ENTITY_ID)));
-
-        Field<String> targetAssetCodeField = DSL
-                .when(LOGICAL_FLOW.TARGET_ENTITY_KIND.eq(EntityKind.APPLICATION.name()),
-                        DSL.select(APPLICATION.ASSET_CODE)
-                                .from(APPLICATION)
-                                .where(APPLICATION.ID.eq(LOGICAL_FLOW.TARGET_ENTITY_ID)));
 
         Field<String> targetOrgUnitNameField = DSL
                 .when(LOGICAL_FLOW.TARGET_ENTITY_KIND.eq(EntityKind.APPLICATION.name()),
@@ -150,34 +149,47 @@ public class LogicalFlowExtractor extends CustomDataExtractor {
                                     .on(ORGANISATIONAL_UNIT.ID.eq(APPLICATION.ORGANISATIONAL_UNIT_ID))
                                 .where(APPLICATION.ID.eq(LOGICAL_FLOW.TARGET_ENTITY_ID)));
 
-        return dsl
+        Condition sourceIsApp = LOGICAL_FLOW.SOURCE_ENTITY_ID.in(appIdSelector).and(LOGICAL_FLOW.SOURCE_ENTITY_KIND.eq(EntityKind.APPLICATION.name()));
+        Condition targetIsApp = LOGICAL_FLOW.TARGET_ENTITY_ID.in(appIdSelector).and(LOGICAL_FLOW.TARGET_ENTITY_KIND.eq(EntityKind.APPLICATION.name()));
+
+        FlowClassification sourceClassification = FLOW_CLASSIFICATION.as("sourceClassification");
+        FlowClassification targetClassification = FLOW_CLASSIFICATION.as("targetClassification");
+
+        SelectConditionStep<Record> qry = dsl
+                .select(LOGICAL_FLOW_ID)
                 .select(SOURCE_NAME_FIELD.as("Source"),
-                        sourceAssetCodeField.as("Source Asset Code"),
+                        SOURCE_EXT_ID_FIELD.as("Source Asset Code"),
                         sourceOrgUnitNameField.as("Source Org Unit"))
                 .select(TARGET_NAME_FIELD.as("Target"),
-                        targetAssetCodeField.as("Target Asset Code"),
+                        TARGET_EXT_ID_FIELD.as("Target Asset Code"),
                         targetOrgUnitNameField.as("Target Org Unit"))
+                .select(LOGICAL_FLOW.EXTERNAL_ID.as("Flow External Id"))
                 .select(DATA_TYPE.NAME.as("Data Type"))
-                .select(ENUM_VALUE.DISPLAY_NAME.as("Authoritativeness"))
-                .select(LOGICAL_FLOW.ID)
+                .select(sourceClassification.NAME.as("Source Outbound Rating"))
+                .select(targetClassification.NAME.as("Target Inbound Rating"))
+                .select(LOGICAL_FLOW.CREATED_AT.as("Created At"))
+                .select(LOGICAL_FLOW.CREATED_BY.as("Created By"))
+                .select(LOGICAL_FLOW.LAST_UPDATED_AT.as("Last Updated At"))
+                .select(LOGICAL_FLOW.LAST_UPDATED_BY.as("Last Updated By"))
                 .from(LOGICAL_FLOW)
-                .leftJoin(sourceAppFlows)
-                    .on(sourceFlowId.eq(LOGICAL_FLOW.ID))
-                .leftJoin(targetAppFlows)
-                    .on(targetFlowId.eq(LOGICAL_FLOW.ID))
-                .join(LOGICAL_FLOW_DECORATOR)
-                    .on(LOGICAL_FLOW_DECORATOR.LOGICAL_FLOW_ID.eq(LOGICAL_FLOW.ID)
+                .innerJoin(LOGICAL_FLOW_DECORATOR)
+                .on(LOGICAL_FLOW_DECORATOR.LOGICAL_FLOW_ID.eq(LOGICAL_FLOW.ID)
                         .and(LOGICAL_FLOW_DECORATOR.DECORATOR_ENTITY_KIND.eq(EntityKind.DATA_TYPE.name())))
-                .join(DATA_TYPE)
-                    .on(DATA_TYPE.ID.eq(LOGICAL_FLOW_DECORATOR.DECORATOR_ENTITY_ID)
+                .innerJoin(DATA_TYPE)
+                .on(DATA_TYPE.ID.eq(LOGICAL_FLOW_DECORATOR.DECORATOR_ENTITY_ID)
                         .and(LOGICAL_FLOW_DECORATOR.DECORATOR_ENTITY_KIND.eq(EntityKind.DATA_TYPE.name())))
-                .join(ENUM_VALUE)
-                    .on(ENUM_VALUE.KEY.eq(LOGICAL_FLOW_DECORATOR.RATING)
-                            .and(ENUM_VALUE.TYPE.eq("AuthoritativenessRating")))
-                .where(LOGICAL_FLOW.ENTITY_LIFECYCLE_STATUS.ne(REMOVED.name()))
+                .innerJoin(sourceClassification)
+                .on(sourceClassification.CODE.eq(LOGICAL_FLOW_DECORATOR.RATING)
+                        .and(sourceClassification.DIRECTION.eq(FlowDirection.OUTBOUND.name())))
+                .innerJoin(targetClassification)
+                .on(targetClassification.CODE.eq(LOGICAL_FLOW_DECORATOR.TARGET_INBOUND_RATING)
+                        .and(targetClassification.DIRECTION.eq(FlowDirection.INBOUND.name())))
+                .where(dsl.renderInlined(LOGICAL_FLOW.ENTITY_LIFECYCLE_STATUS.ne(REMOVED.name())
+                .and(LOGICAL_FLOW.IS_REMOVED.isFalse())
                 .and(conditionForDataType)
-                .and(sourceFlowId.isNotNull()
-                        .or(targetFlowId.isNotNull()));
+                .and(sourceIsApp.or(targetIsApp))));
+
+        return qry;
     }
 
     private Tuple3<ExtractFormat, String, byte[]> prepareFlows(SelectConditionStep<Record> query,
@@ -204,7 +216,7 @@ public class LogicalFlowExtractor extends CustomDataExtractor {
                     ArrayList<Object> reportRow = new ArrayList<>();
                     staticHeaders.forEach(h -> reportRow.add(row.get(h)));
 
-                    Long logicalFlowId = row.get(LOGICAL_FLOW.ID);
+                    Long logicalFlowId = row.get(LOGICAL_FLOW_ID);
                     List<String> logicalFlowTags = tags.get(logicalFlowId);
                     reportRow.add(isEmpty(logicalFlowTags)
                             ? ""

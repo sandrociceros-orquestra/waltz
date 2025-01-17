@@ -22,7 +22,9 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import org.finos.waltz.model.DescriptionProvider;
 import org.finos.waltz.model.EntityReference;
+import org.finos.waltz.model.IdProvider;
 import org.finos.waltz.model.LastUpdatedProvider;
+import org.finos.waltz.model.Nullable;
 import org.finos.waltz.model.ProvenanceProvider;
 import org.immutables.value.Value;
 
@@ -31,14 +33,28 @@ import org.immutables.value.Value;
 @JsonSerialize(as = ImmutableMeasurableRating.class)
 @JsonDeserialize(as = ImmutableMeasurableRating.class)
 public abstract class MeasurableRating implements
+        IdProvider,
         DescriptionProvider,
         LastUpdatedProvider,
         ProvenanceProvider {
 
     public abstract EntityReference entityReference();
+
     public abstract long measurableId();
+
     public abstract char rating();
 
     @Value.Default
-    public boolean isReadOnly() { return false; }
+    public boolean isReadOnly() {
+        return false;
+    }
+
+    @Value.Default
+    public boolean isPrimary() {
+        return false;
+    }
+
+    // The aim is to move to ratingId long term and remove the 'code' column
+    @Nullable
+    public abstract Long ratingId();
 }

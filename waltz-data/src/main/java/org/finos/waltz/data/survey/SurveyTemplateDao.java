@@ -24,11 +24,15 @@ import org.finos.waltz.model.ReleaseLifecycleStatus;
 import org.finos.waltz.model.survey.ImmutableSurveyTemplate;
 import org.finos.waltz.model.survey.SurveyTemplate;
 import org.finos.waltz.model.survey.SurveyTemplateChangeCommand;
+import org.finos.waltz.model.user.SystemRole;
 import org.finos.waltz.schema.tables.records.SurveyTemplateRecord;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.jooq.Record1;
 import org.jooq.RecordMapper;
+import org.jooq.SelectConditionStep;
+import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
@@ -39,7 +43,9 @@ import java.util.Optional;
 import java.util.function.Function;
 
 import static org.finos.waltz.common.Checks.checkNotNull;
+import static org.finos.waltz.common.StringUtilities.nullIfEmpty;
 import static org.finos.waltz.schema.Tables.SURVEY_QUESTION;
+import static org.finos.waltz.schema.Tables.USER_ROLE;
 import static org.finos.waltz.schema.tables.SurveyTemplate.SURVEY_TEMPLATE;
 
 @Repository
@@ -57,6 +63,7 @@ public class SurveyTemplateDao {
                 .createdAt(record.getCreatedAt().toLocalDateTime())
                 .status(ReleaseLifecycleStatus.valueOf(record.getStatus()))
                 .externalId(Optional.ofNullable(record.getExternalId()))
+                .issuanceRole(record.getIssuanceRole())
                 .build();
     };
 
@@ -70,6 +77,7 @@ public class SurveyTemplateDao {
         record.setCreatedAt(Timestamp.valueOf(template.createdAt()));
         record.setStatus(template.status().name());
         record.setExternalId(template.externalId().orElse(null));
+        record.setIssuanceRole(nullIfEmpty(template.issuanceRole()));
 
         return record;
     };
@@ -131,7 +139,8 @@ public class SurveyTemplateDao {
         checkNotNull(surveyTemplate, "surveyTemplate cannot be null");
 
         SurveyTemplateRecord record = TO_RECORD_MAPPER.apply(surveyTemplate);
-        return dsl.insertInto(SURVEY_TEMPLATE)
+        return dsl
+                .insertInto(SURVEY_TEMPLATE)
                 .set(record)
                 .returning(SURVEY_TEMPLATE.ID)
                 .fetchOne()
@@ -148,6 +157,7 @@ public class SurveyTemplateDao {
                 .set(SURVEY_TEMPLATE.DESCRIPTION, command.description())
                 .set(SURVEY_TEMPLATE.EXTERNAL_ID, command.externalId().orElse(null))
                 .set(SURVEY_TEMPLATE.TARGET_ENTITY_KIND, command.targetEntityKind().name())
+                .set(SURVEY_TEMPLATE.ISSUANCE_ROLE, nullIfEmpty(command.issuanceRole()))
                 .where(SURVEY_TEMPLATE.ID.eq(command.id().get()))
                 .execute();
     }
@@ -182,5 +192,21 @@ public class SurveyTemplateDao {
                 .on(SURVEY_TEMPLATE.ID.eq(SURVEY_QUESTION.SURVEY_TEMPLATE_ID))
                 .where(SURVEY_QUESTION.ID.eq(questionId))
                 .fetchOne(TO_DOMAIN_MAPPER);
+    }
+
+
+    public boolean canUserIssueAgainstTemplate(Long templateId,
+                                               String userName) {
+        SelectConditionStep<Record1<Long>> qry = DSL
+                .select(SURVEY_TEMPLATE.ID)
+                .from(SURVEY_TEMPLATE)
+                .leftJoin(USER_ROLE)
+                .on(USER_ROLE.ROLE.in(SURVEY_TEMPLATE.ISSUANCE_ROLE, DSL.value(SystemRole.ADMIN.name()))
+                        .and(USER_ROLE.USER_NAME.eq(userName)))
+                .where(SURVEY_TEMPLATE.ID.eq(templateId)
+                        .and(SURVEY_TEMPLATE.STATUS.eq(ReleaseLifecycleStatus.ACTIVE.name()))
+                        .and(USER_ROLE.ROLE.isNotNull()
+                                .or(SURVEY_TEMPLATE.ISSUANCE_ROLE.isNull())));
+        return dsl.fetchCount(qry) > 0;
     }
 }

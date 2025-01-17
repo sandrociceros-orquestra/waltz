@@ -26,7 +26,13 @@ import org.finos.waltz.model.EntityKind;
 import org.finos.waltz.model.EntityLifecycleStatus;
 import org.finos.waltz.model.EntityReference;
 import org.finos.waltz.model.measurable.*;
-import org.jooq.*;
+import org.jooq.CommonTableExpression;
+import org.jooq.DSLContext;
+import org.jooq.Record1;
+import org.jooq.Record11;
+import org.jooq.Record3;
+import org.jooq.Result;
+import org.jooq.Select;
 import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
@@ -75,7 +81,7 @@ public class MeasurableCategoryAlignmentViewDao {
                         .where(eh.KIND.eq(EntityKind.MEASURABLE.name())));
 
 
-        Map<EntityReference, Result<Record10<String, Long, Long, String, Long, Boolean, String, Long, Long, String>>> alignmentsByMeasurableCategoryRef = dsl
+        Map<EntityReference, Result<Record11<String, Long, Long, String, Long, Boolean, String, Long, Integer, Long, String>>> alignmentsByMeasurableCategoryRef = dsl
                 .with(ratings)
                 .with(parents_with_ratings)
                 .select(mc.NAME,
@@ -86,6 +92,7 @@ public class MeasurableCategoryAlignmentViewDao {
                         m.CONCRETE,
                         m.LAST_UPDATED_BY,
                         m.ORGANISATIONAL_UNIT_ID,
+                        m.POSITION,
                         parents_with_ratings.field(mr.ENTITY_ID),
                         parents_with_ratings.field(mr.RATING))
                 .from(parents_with_ratings)
@@ -100,7 +107,7 @@ public class MeasurableCategoryAlignmentViewDao {
                 .entrySet()
                 .stream()
                 .map(e -> {
-                    Result<Record10<String, Long, Long, String, Long, Boolean, String, Long, Long, String>> values = e.getValue();
+                    Result<Record11<String, Long, Long, String, Long, Boolean, String, Long, Integer, Long, String>> values = e.getValue();
                     EntityReference categoryRef = e.getKey();
 
                     Map<Measurable, Set<Long>> measurableAlignments = groupAndThen(
@@ -113,6 +120,7 @@ public class MeasurableCategoryAlignmentViewDao {
                                     .concrete(k.get(m.CONCRETE))
                                     .organisationalUnitId(k.get(m.ORGANISATIONAL_UNIT_ID))
                                     .lastUpdatedBy(k.get(m.LAST_UPDATED_BY))
+                                    .position(k.get(m.POSITION))
                                     .build(),
                             v -> map(v, r -> r.get(parents_with_ratings.field(mr.ENTITY_ID))));
 

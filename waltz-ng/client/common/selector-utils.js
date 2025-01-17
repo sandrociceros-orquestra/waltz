@@ -19,12 +19,32 @@
 
 import {checkIsEntityRef} from "./checks";
 
+/**
+ * Returns true if the entity kind is hierarchical (has parents/children)
+ *
+ * @param kind  the entity kind in question (e.g. 'APPLICATION', 'ORG_UNIT')
+ * @returns {boolean}  true iff the entity `kind` is hierarchical
+ */
+export function isHierarchicalKind(kind) {
+    switch (kind) {
+        case "CHANGE_INITIATIVE":
+        case "DATA_TYPE":
+        case "ORG_UNIT":
+        case "PERSON":
+        case "MEASURABLE":
+            return true;
+        default:
+            return false;
+    }
+}
+
 export function determineDownwardsScopeForKind(kind) {
     switch (kind) {
         case "ACTOR":
         case "APPLICATION":
         case "APP_GROUP":
         case "CHANGE_INITIATIVE":
+        case "END_USER_APPLICATION":
         case "FLOW_DIAGRAM":
         case "LICENCE":
         case "LEGAL_ENTITY":
@@ -69,7 +89,7 @@ export function determineUpwardsScopeForKind(kind) {
  * @returns {{entityLifecycleStatuses: string[], entityReference: {kind: *, id: *}, scope: (*|string), filters}}
  */
 export function mkSelectionOptions(entityReference,
-                                   scope,
+                                   scope = null,
                                    entityLifecycleStatuses = ["ACTIVE"],
                                    filters = {}) {
     checkIsEntityRef(entityReference);

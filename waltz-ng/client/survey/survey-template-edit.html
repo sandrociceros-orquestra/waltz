@@ -104,6 +104,28 @@
                 </div>
             </div>
 
+            <div class="form-group">
+                <label for="issuanceRole"
+                       class="col-sm-2 control-label">
+                    Issuance Role
+                </label>
+                <div class="col-sm-10">
+                    <input class="form-control form-control-warning"
+                           id="issuanceRole"
+                           placeholder="Restricts who can issue this template"
+                           ng-model="ctrl.surveyTemplate.issuanceRole" />
+                    <div class="help-block">
+                        Restricts who can issue this template.  Only users which have this role can:
+                        <ul>
+                            <li>Self issue this survey</li>
+                            <li>Bulk issue this survey via a run (if they also have SURVEY_RUN_ADMIN)</li>
+                        </ul>
+                        To prevent any users from issuing this survey, assign a non-existent or role with no assigned users.
+                        This is often used when the survey will be issued programmatically via a job.
+                    </div>
+                </div>
+            </div>
+
             <div class="form-group" style="padding-top: 10px">
                 <div class="col-sm-offset-2 col-sm-10">
                     <button type="button"
@@ -192,8 +214,10 @@
                         <select id="qFieldType"
                                 required
                                 class="form-control"
-                                ng-options="fieldType.value as fieldType.name for fieldType in ctrl.questionFieldTypes | orderBy:'name'"
-                                ng-model="ctrl.selectedQuestionInfo.question.fieldType">
+                                ng-options="fieldType.value as fieldType.name for fieldType in ctrl.questionFieldTypes"
+                                ng-model="ctrl.selectedQuestionInfo.question.fieldType"
+                                ng-change="ctrl.onChangeQFieldType()"
+                        >
                         </select>
                     </div>
                     <div ng-if="ctrl.selectedQuestionInfo.question.fieldType === 'DROPDOWN'
@@ -210,9 +234,9 @@
                          class="col-sm-7 col-sm-offset-2">
                         <div style="display: block; background-color: #F8F9F9; margin-top:10px; padding: 1em; border-radius: 2px; border: 1px solid #eee">
                             <select id="qCategoryId"
-                                    required
-                                    class="form-control"
-                                    ng-options="category.id as category.name for category in ctrl.measurableCategories | orderBy:'name'"
+                                required
+                                class="form-control"
+                                ng-options="category.id as category.name for category in ctrl.measurableCategories | orderBy:'name'"
                                     ng-model="ctrl.selectedQuestionInfo.question.qualifierEntity.id">
                             </select>
                             <div class='small text-muted'>

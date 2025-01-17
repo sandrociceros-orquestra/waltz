@@ -8,7 +8,7 @@
         parentCategory,
         startingCategory
     } from "./flow-decorator-store";
-    import {colors, dimensions} from "./flow-decorator-utils"
+    import {dimensions, getNodeColors} from "./flow-decorator-utils"
     import {truncateMiddle} from "../../../common/string-utils";
     import {symbol, symbolCircle, symbolTriangle} from "d3-shape";
     import {createEventDispatcher} from "svelte";
@@ -58,8 +58,8 @@
 
 </script>
 
-<rect fill={colors[kind].fill}
-      stroke={colors[kind].stroke}
+<rect fill={getNodeColors(kind).fill}
+      stroke={getNodeColors(kind).stroke}
       x={20}
       width={dimensions.category.width - 40}
       height={dimensions.diagram.height}>
@@ -70,6 +70,7 @@
     <g transform={`translate(0, ${$categoryScale(category.id)})`}
        class="no-text-select category">
         <rect class="pill"
+              role="button"
               on:mouseenter={() => onMouseEnter(category)}
               on:mouseleave={() => onMouseLeave()}
               rx={dimensions.category.height / 2}
@@ -84,6 +85,7 @@
             <g transform={mkTranslateStr(downNavigationOffset)}
                class="navigation-control">
                 <path d={symbol().type(symbolCircle).size(500)()}
+                      role="button"
                       on:click|stopPropagation={() => navigateToCategory(category)}
                       on:keydown|stopPropagation={() => navigateToCategory(category)}
                       class="clickable navigation-circle">
@@ -99,6 +101,7 @@
             <g transform={mkTranslateStr(upNavigationOffset)}
                class="navigation-control">
                 <path d={symbol().type(symbolCircle).size(500)()}
+                      role="button"
                       on:click|stopPropagation={() => navigateToCategory($parentCategory)}
                       on:keydown|stopPropagation={() => navigateToCategory($parentCategory)}
                       class="clickable navigation-circle">

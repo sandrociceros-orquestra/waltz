@@ -19,13 +19,21 @@
 package org.finos.waltz.web.endpoints.api;
 
 
+import org.finos.waltz.common.EnumUtilities;
 import org.finos.waltz.common.exception.InsufficientPrivelegeException;
 import org.finos.waltz.model.EntityKind;
+import org.finos.waltz.model.EntityReference;
 import org.finos.waltz.model.UserTimestamp;
 import org.finos.waltz.model.assessment_definition.AssessmentDefinition;
+import org.finos.waltz.model.assessment_definition.AssessmentRipplerJobConfiguration;
 import org.finos.waltz.model.assessment_rating.*;
+import org.finos.waltz.model.assessment_rating.bulk_upload.AssessmentRatingValidationResult;
+import org.finos.waltz.model.bulk_upload.BulkUpdateMode;
+import org.finos.waltz.model.user.SystemRole;
 import org.finos.waltz.service.assessment_definition.AssessmentDefinitionService;
 import org.finos.waltz.service.assessment_rating.AssessmentRatingService;
+import org.finos.waltz.service.assessment_rating.BulkAssessmentRatingItemParser;
+import org.finos.waltz.service.assessment_rating.BulkAssessmentRatingService;
 import org.finos.waltz.service.permission.permission_checker.AssessmentRatingPermissionChecker;
 import org.finos.waltz.service.user.UserRoleService;
 import org.finos.waltz.web.NotAuthorizedException;
@@ -42,6 +50,7 @@ import java.util.Set;
 
 import static org.finos.waltz.common.Checks.checkNotNull;
 import static org.finos.waltz.common.StringUtilities.mkSafe;
+import static org.finos.waltz.model.EntityReference.mkRef;
 import static org.finos.waltz.web.WebUtilities.*;
 import static org.finos.waltz.web.endpoints.EndpointUtilities.*;
 
@@ -56,12 +65,14 @@ public class AssessmentRatingEndpoint implements Endpoint {
     private final AssessmentRatingPermissionChecker assessmentRatingPermissionChecker;
     private final UserRoleService userRoleService;
 
+    private final BulkAssessmentRatingService bulkAssessmentRatingService;
 
     @Autowired
     public AssessmentRatingEndpoint(AssessmentRatingService assessmentRatingService,
                                     AssessmentDefinitionService assessmentDefinitionService,
                                     AssessmentRatingPermissionChecker assessmentRatingPermissionChecker,
-                                    UserRoleService userRoleService) {
+                                    UserRoleService userRoleService,
+                                    BulkAssessmentRatingService bulkAssessmentRatingService) {
 
         checkNotNull(assessmentRatingService, "assessmentRatingService cannot be null");
         checkNotNull(assessmentDefinitionService, "assessmentDefinitionService cannot be null");
@@ -72,6 +83,7 @@ public class AssessmentRatingEndpoint implements Endpoint {
         this.assessmentDefinitionService = assessmentDefinitionService;
         this.assessmentRatingPermissionChecker = assessmentRatingPermissionChecker;
         this.userRoleService = userRoleService;
+        this.bulkAssessmentRatingService = bulkAssessmentRatingService;
     }
 
 
@@ -82,6 +94,7 @@ public class AssessmentRatingEndpoint implements Endpoint {
         String findByDefinitionPath = mkPath(BASE_URL, "definition-id", ":assessmentDefinitionId");
         String findByTargetKindForRelatedSelectorPath = mkPath(BASE_URL, "target-kind", ":targetKind", "selector");
         String findSummaryCountsPath = mkPath(BASE_URL, "target-kind", ":targetKind", "summary-counts");
+        String hasMultiValuedAssessmentsPath = mkPath(BASE_URL, "definition-id", ":assessmentDefinitionId", "mva-check");
         String modifyPath = mkPath(BASE_URL, "entity", ":kind", ":id", ":assessmentDefinitionId");
         String updateCommentPath = mkPath(BASE_URL, "id", ":id", "update-comment");
         String updateRatingPath = mkPath(BASE_URL, "id", ":id", "update-rating");
@@ -91,12 +104,21 @@ public class AssessmentRatingEndpoint implements Endpoint {
         String findRatingPermissionsPath = mkPath(BASE_URL, "entity", ":kind", ":id", ":assessmentDefinitionId", "permissions");
         String bulkUpdatePath = mkPath(BASE_URL, "bulk-update", ":assessmentDefinitionId");
         String bulkRemovePath = mkPath(BASE_URL, "bulk-remove", ":assessmentDefinitionId");
+        String rippleAllPath = mkPath(BASE_URL, "ripple", "all");
+        String rippleConfigPath = mkPath(BASE_URL, "ripple", "config");
+
+        String bulkAssessmentDefinitionPreviewPath = mkPath(BASE_URL, "bulk", "preview", "ASSESSMENT_DEFINITION", ":id");
+        String bulkAssessmentDefinitionApplyPath = mkPath(BASE_URL, "bulk", "apply", "ASSESSMENT_DEFINITION", ":id");
+
+        registerPreviewBulkAssessmentRatingChanges(bulkAssessmentDefinitionPreviewPath);
+        registerApplyBulkAssessmentRatingChanges(bulkAssessmentDefinitionApplyPath);
 
         getForList(findForEntityPath, this::findForEntityRoute);
         getForList(findByEntityKindPath, this::findByEntityKindRoute);
         getForList(findByDefinitionPath, this::findByDefinitionIdRoute);
         postForList(findSummaryCountsPath, this::findSummaryCountsRoute);
         getForList(findRatingPermissionsPath, this::findRatingPermissionsRoute);
+        getForDatum(hasMultiValuedAssessmentsPath, this::hasMultiValuedAssessmentsRoute);
         postForList(findByTargetKindForRelatedSelectorPath, this::findByTargetKindForRelatedSelectorRoute);
         postForDatum(bulkUpdatePath, this::bulkStoreRoute);
         postForDatum(bulkRemovePath, this::bulkRemoveRoute);
@@ -106,6 +128,8 @@ public class AssessmentRatingEndpoint implements Endpoint {
         putForDatum(lockPath, this::lockRoute);
         putForDatum(unlockPath, this::unlockRoute);
         deleteForDatum(removePath, this::removeRoute);
+        postForDatum(rippleAllPath, this::rippleRoute);
+        getForList(rippleConfigPath, this::rippleConfigRoute);
     }
 
 
@@ -151,6 +175,12 @@ public class AssessmentRatingEndpoint implements Endpoint {
                         targetKind,
                         summaryCountRequest.idSelectionOptions(),
                         summaryCountRequest.definitionIds());
+    }
+
+
+    private boolean hasMultiValuedAssessmentsRoute(Request request, Response response) throws IOException {
+        long assessmentDefinitionId = getLong(request, "assessmentDefinitionId");
+        return assessmentRatingService.hasMultiValuedAssessments(assessmentDefinitionId);
     }
 
 
@@ -207,6 +237,17 @@ public class AssessmentRatingEndpoint implements Endpoint {
     }
 
 
+    private Long rippleRoute(Request request, Response z) {
+        requireRole(userRoleService, request, SystemRole.ADMIN);
+        return assessmentRatingService.rippleAll();
+    }
+
+
+    private Set<AssessmentRipplerJobConfiguration> rippleConfigRoute(Request request, Response z) {
+        return assessmentRatingService.findRippleConfig();
+    }
+
+
     private boolean removeRoute(Request request, Response z) throws InsufficientPrivelegeException {
         String username = getUsername(request);
         UserTimestamp lastUpdate = UserTimestamp.mkForUser(username);
@@ -252,6 +293,23 @@ public class AssessmentRatingEndpoint implements Endpoint {
         if (def.isReadOnly()) {
             throw new NotAuthorizedException("Assessment is read-only");
         }
+    }
+
+    private void registerPreviewBulkAssessmentRatingChanges(String path) {
+        postForDatum(path, (req, resp) -> {
+            EntityReference assessmentDefRef = mkRef(EntityKind.ASSESSMENT_DEFINITION, getId(req));
+            String body = req.body();
+            return bulkAssessmentRatingService.bulkPreview(assessmentDefRef, body);
+        });
+    }
+
+    private void registerApplyBulkAssessmentRatingChanges(String path) {
+        postForDatum(path, (req, resp) -> {
+            EntityReference assessmentDefRef = mkRef(EntityKind.ASSESSMENT_DEFINITION, getId(req));
+            String body = req.body();
+            AssessmentRatingValidationResult preview = bulkAssessmentRatingService.bulkPreview(assessmentDefRef, body);
+            return bulkAssessmentRatingService.apply(assessmentDefRef, preview, getUsername(req));
+        });
     }
 
 }

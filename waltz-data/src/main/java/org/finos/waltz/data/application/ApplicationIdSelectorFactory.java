@@ -18,7 +18,6 @@
 
 package org.finos.waltz.data.application;
 
-import org.finos.waltz.schema.tables.*;
 import org.finos.waltz.data.SelectorUtilities;
 import org.finos.waltz.data.data_type.DataTypeIdSelectorFactory;
 import org.finos.waltz.data.logical_flow.LogicalFlowDao;
@@ -28,14 +27,30 @@ import org.finos.waltz.model.EntityKind;
 import org.finos.waltz.model.EntityReference;
 import org.finos.waltz.model.IdSelectionOptions;
 import org.finos.waltz.model.ImmutableIdSelectionOptions;
-import org.jooq.*;
+import org.finos.waltz.schema.tables.Application;
+import org.finos.waltz.schema.tables.FlowDiagramEntity;
+import org.finos.waltz.schema.tables.Involvement;
+import org.finos.waltz.schema.tables.InvolvementKind;
+import org.finos.waltz.schema.tables.LogicalFlow;
+import org.finos.waltz.schema.tables.MeasurableRating;
+import org.finos.waltz.schema.tables.Person;
+import org.finos.waltz.schema.tables.PersonHierarchy;
+import org.jooq.Condition;
+import org.jooq.Field;
+import org.jooq.Record1;
+import org.jooq.Select;
+import org.jooq.SelectConditionStep;
+import org.jooq.SelectOrderByStep;
+import org.jooq.SelectWhereStep;
 import org.jooq.impl.DSL;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.function.Function;
 
+import static org.finos.waltz.common.Checks.checkNotNull;
+import static org.finos.waltz.common.Checks.checkTrue;
+import static org.finos.waltz.model.EntityLifecycleStatus.REMOVED;
+import static org.finos.waltz.model.HierarchyQueryScope.EXACT;
 import static org.finos.waltz.schema.Tables.*;
 import static org.finos.waltz.schema.tables.Application.APPLICATION;
 import static org.finos.waltz.schema.tables.ApplicationGroupEntry.APPLICATION_GROUP_ENTRY;
@@ -47,35 +62,33 @@ import static org.finos.waltz.schema.tables.LogicalFlowDecorator.LOGICAL_FLOW_DE
 import static org.finos.waltz.schema.tables.MeasurableRating.MEASURABLE_RATING;
 import static org.finos.waltz.schema.tables.Person.PERSON;
 import static org.finos.waltz.schema.tables.PersonHierarchy.PERSON_HIERARCHY;
-import static org.finos.waltz.common.Checks.checkNotNull;
-import static org.finos.waltz.common.Checks.checkTrue;
-import static org.finos.waltz.model.EntityLifecycleStatus.REMOVED;
-import static org.finos.waltz.model.HierarchyQueryScope.EXACT;
 
 @Service
 public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions, Select<Record1<Long>>> {
-
-    private static final Logger LOG = LoggerFactory.getLogger(ApplicationIdSelectorFactory.class);
 
     private static final DataTypeIdSelectorFactory dataTypeIdSelectorFactory = new DataTypeIdSelectorFactory();
     private static final MeasurableIdSelectorFactory measurableIdSelectorFactory = new MeasurableIdSelectorFactory();
     private static final OrganisationalUnitIdSelectorFactory orgUnitIdSelectorFactory = new OrganisationalUnitIdSelectorFactory();
 
-    private static final FlowDiagramEntity flowDiagram = FLOW_DIAGRAM_ENTITY.as("fd");
-    private static final Involvement involvement = INVOLVEMENT.as("inv");
-    private static final LogicalFlow logicalFlow = LOGICAL_FLOW.as("lf");
-    private static final MeasurableRating measurableRating = MEASURABLE_RATING.as("mr");
-    private static final Person person = PERSON.as("p");
-    private static final Person reportee = PERSON.as("pr");
-    private static final PersonHierarchy personHierarchy = PERSON_HIERARCHY.as("ph");
+    private static final FlowDiagramEntity flowDiagram = FLOW_DIAGRAM_ENTITY.as("fd_aisf");
+    private static final Involvement involvement = INVOLVEMENT.as("inv_aisf");
+    private static final InvolvementKind involvementKind = INVOLVEMENT_KIND.as("inv_kind_aisf");
+    private static final LogicalFlow logicalFlow = LOGICAL_FLOW.as("lf_aisf");
+    private static final MeasurableRating measurableRating = MEASURABLE_RATING.as("mr_aisf");
+    private static final Person person = PERSON.as("p_aisf");
+    private static final Person reportee = PERSON.as("pr_aisf");
+    private static final PersonHierarchy personHierarchy = PERSON_HIERARCHY.as("ph_aisf");
+    private static final Application app = APPLICATION.as("app_aisf");
 
 
     public Select<Record1<Long>> apply(IdSelectionOptions options) {
         checkNotNull(options, "options cannot be null");
         EntityReference ref = options.entityReference();
         switch (ref.kind()) {
+            case ALL:
+                return mkForAll(options);
             case ACTOR:
-                return mkForActor(options);
+                return mkViaFlows(options);
             case APP_GROUP:
                 return mkForAppGroup(options);
             case APPLICATION:
@@ -84,6 +97,8 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
                 return mkForEntityRelationship(options);
             case DATA_TYPE:
                 return mkForDataType(options);
+            case END_USER_APPLICATION:
+                return mkViaFlows(options);
             case FLOW_DIAGRAM:
                 return mkForFlowDiagram(options);
             case LICENCE:
@@ -123,6 +138,16 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
         }
     }
 
+
+    private Select<Record1<Long>> mkForAll(IdSelectionOptions options) {
+        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(app, options);
+
+        return DSL
+                .select(app.ID)
+                .from(app)
+                .where(applicationConditions);
+    }
+
     private Select<Record1<Long>> mkForLegalEntity(IdSelectionOptions options) {
         return DSL
                 .select(LEGAL_ENTITY_RELATIONSHIP.TARGET_ID)
@@ -142,66 +167,66 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
 
     private Select<Record1<Long>> mkForPhysicalSpec(IdSelectionOptions options) {
         return DSL
-                .select(APPLICATION.ID)
+                .select(app.ID)
                 .from(PHYSICAL_FLOW)
                 .innerJoin(LOGICAL_FLOW).on(PHYSICAL_FLOW.LOGICAL_FLOW_ID.eq(LOGICAL_FLOW.ID))
-                .innerJoin(APPLICATION).on(LOGICAL_FLOW.SOURCE_ENTITY_ID.eq(APPLICATION.ID))
+                .innerJoin(app).on(LOGICAL_FLOW.SOURCE_ENTITY_ID.eq(app.ID))
                 .where(LOGICAL_FLOW.SOURCE_ENTITY_KIND.eq(EntityKind.APPLICATION.name())
                         .and(PHYSICAL_FLOW.SPECIFICATION_ID.eq(options.entityReference().id()))
-                        .and(SelectorUtilities.mkApplicationConditions(options)))
+                        .and(SelectorUtilities.mkApplicationConditions(app, options)))
                 .union(DSL
-                        .select(APPLICATION.ID)
+                        .select(app.ID)
                         .from(PHYSICAL_FLOW)
                         .innerJoin(LOGICAL_FLOW).on(PHYSICAL_FLOW.LOGICAL_FLOW_ID.eq(LOGICAL_FLOW.ID))
-                        .innerJoin(APPLICATION).on(LOGICAL_FLOW.TARGET_ENTITY_ID.eq(APPLICATION.ID))
+                        .innerJoin(app).on(LOGICAL_FLOW.TARGET_ENTITY_ID.eq(app.ID))
                         .where(LOGICAL_FLOW.TARGET_ENTITY_KIND.eq(EntityKind.APPLICATION.name())
                                 .and(PHYSICAL_FLOW.SPECIFICATION_ID.eq(options.entityReference().id()))
-                                .and(SelectorUtilities.mkApplicationConditions(options))));
+                                .and(SelectorUtilities.mkApplicationConditions(app, options))));
     }
 
 
     private Select<Record1<Long>> mkForPhysicalFlow(IdSelectionOptions options) {
         return DSL
-                .select(APPLICATION.ID)
+                .select(app.ID)
                 .from(PHYSICAL_FLOW)
                 .innerJoin(LOGICAL_FLOW).on(PHYSICAL_FLOW.LOGICAL_FLOW_ID.eq(LOGICAL_FLOW.ID))
-                .innerJoin(APPLICATION).on(LOGICAL_FLOW.SOURCE_ENTITY_ID.eq(APPLICATION.ID))
+                .innerJoin(app).on(LOGICAL_FLOW.SOURCE_ENTITY_ID.eq(app.ID))
                 .where(LOGICAL_FLOW.SOURCE_ENTITY_KIND.eq(EntityKind.APPLICATION.name())
                         .and(PHYSICAL_FLOW.ID.eq(options.entityReference().id()))
-                        .and(SelectorUtilities.mkApplicationConditions(options)))
+                        .and(SelectorUtilities.mkApplicationConditions(app, options)))
                 .union(DSL
-                        .select(APPLICATION.ID)
+                        .select(app.ID)
                         .from(PHYSICAL_FLOW)
                         .innerJoin(LOGICAL_FLOW).on(PHYSICAL_FLOW.LOGICAL_FLOW_ID.eq(LOGICAL_FLOW.ID))
-                        .innerJoin(APPLICATION).on(LOGICAL_FLOW.TARGET_ENTITY_ID.eq(APPLICATION.ID))
+                        .innerJoin(app).on(LOGICAL_FLOW.TARGET_ENTITY_ID.eq(app.ID))
                         .where(LOGICAL_FLOW.TARGET_ENTITY_KIND.eq(EntityKind.APPLICATION.name())
                                 .and(PHYSICAL_FLOW.ID.eq(options.entityReference().id()))
-                                .and(SelectorUtilities.mkApplicationConditions(options))));
+                                .and(SelectorUtilities.mkApplicationConditions(app, options))));
     }
 
 
     private Select<Record1<Long>> mkForLogicalDataFlow(IdSelectionOptions options) {
         return DSL
-                .select(APPLICATION.ID)
+                .select(app.ID)
                 .from(LOGICAL_FLOW)
-                .innerJoin(APPLICATION).on(LOGICAL_FLOW.SOURCE_ENTITY_ID.eq(APPLICATION.ID))
+                .innerJoin(app).on(LOGICAL_FLOW.SOURCE_ENTITY_ID.eq(app.ID))
                 .where(LOGICAL_FLOW.SOURCE_ENTITY_KIND.eq(EntityKind.APPLICATION.name())
                         .and(LOGICAL_FLOW.ID.eq(options.entityReference().id()))
-                        .and(SelectorUtilities.mkApplicationConditions(options)))
+                        .and(SelectorUtilities.mkApplicationConditions(app, options)))
                 .union(DSL
-                        .select(APPLICATION.ID)
+                        .select(app.ID)
                         .from(LOGICAL_FLOW)
-                        .innerJoin(APPLICATION).on(LOGICAL_FLOW.TARGET_ENTITY_ID.eq(APPLICATION.ID))
+                        .innerJoin(app).on(LOGICAL_FLOW.TARGET_ENTITY_ID.eq(app.ID))
                         .where(LOGICAL_FLOW.TARGET_ENTITY_KIND.eq(EntityKind.APPLICATION.name())
                                 .and(LOGICAL_FLOW.ID.eq(options.entityReference().id()))
-                                .and(SelectorUtilities.mkApplicationConditions(options))));
+                                .and(SelectorUtilities.mkApplicationConditions(app, options))));
     }
 
 
     private Select<Record1<Long>> mkForProcessDiagram(IdSelectionOptions options) {
         SelectorUtilities.ensureScopeIsExact(options);
         return DSL
-                .select(APPLICATION.ID)
+                .select(app.ID)
                 .from(PROCESS_DIAGRAM_ENTITY)
                 .innerJoin(ENTITY_HIERARCHY)
                 .on(PROCESS_DIAGRAM_ENTITY.ENTITY_ID.eq(ENTITY_HIERARCHY.ANCESTOR_ID)
@@ -209,45 +234,45 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
                                 .and(PROCESS_DIAGRAM_ENTITY.ENTITY_KIND.eq(EntityKind.MEASURABLE.name()))))
                 .innerJoin(MEASURABLE_RATING)
                 .on(ENTITY_HIERARCHY.ID.eq(MEASURABLE_RATING.MEASURABLE_ID))
-                .innerJoin(APPLICATION)
-                .on(MEASURABLE_RATING.ENTITY_ID.eq(APPLICATION.ID)
+                .innerJoin(app)
+                .on(MEASURABLE_RATING.ENTITY_ID.eq(app.ID)
                         .and(MEASURABLE_RATING.ENTITY_KIND.eq(EntityKind.APPLICATION.name())))
                 .where(PROCESS_DIAGRAM_ENTITY.DIAGRAM_ID.eq(options.entityReference().id()))
-                .and(SelectorUtilities.mkApplicationConditions(options));
+                .and(SelectorUtilities.mkApplicationConditions(app, options));
     }
 
 
     private Select<Record1<Long>> mkForDatabase(IdSelectionOptions options) {
         return DSL.select(DATABASE_USAGE.ENTITY_ID)
                 .from(DATABASE_USAGE)
-                .innerJoin(APPLICATION)
-                .on(APPLICATION.ID.eq(DATABASE_USAGE.ENTITY_ID))
+                .innerJoin(app)
+                .on(app.ID.eq(DATABASE_USAGE.ENTITY_ID))
                 .where(DATABASE_USAGE.DATABASE_ID.eq(options.entityReference().id()))
                 .and(DATABASE_USAGE.ENTITY_KIND.eq(EntityKind.APPLICATION.name()))
-                .and(SelectorUtilities.mkApplicationConditions(options));
+                .and(SelectorUtilities.mkApplicationConditions(app, options));
     }
 
 
     private Select<Record1<Long>> mkForTag(IdSelectionOptions options) {
         return DSL.select(TAG_USAGE.ENTITY_ID)
                 .from(TAG_USAGE)
-                .innerJoin(APPLICATION)
-                .on(APPLICATION.ID.eq(TAG_USAGE.ENTITY_ID))
+                .innerJoin(app)
+                .on(app.ID.eq(TAG_USAGE.ENTITY_ID))
                 .where(TAG_USAGE.TAG_ID.eq(options.entityReference().id()))
                 .and(TAG_USAGE.ENTITY_KIND.eq(EntityKind.APPLICATION.name()))
-                .and(SelectorUtilities.mkApplicationConditions(options));
+                .and(SelectorUtilities.mkApplicationConditions(app, options));
     }
 
 
     private Select<Record1<Long>> mkForSoftwarePackage(IdSelectionOptions options) {
         SelectorUtilities.ensureScopeIsExact(options);
 
-        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(options);
+        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(app, options);
         return DSL
                 .selectDistinct(SOFTWARE_USAGE.APPLICATION_ID)
                 .from(SOFTWARE_USAGE)
-                .innerJoin(APPLICATION)
-                    .on(APPLICATION.ID.eq(SOFTWARE_USAGE.APPLICATION_ID))
+                .innerJoin(app)
+                    .on(app.ID.eq(SOFTWARE_USAGE.APPLICATION_ID))
                 .innerJoin(SOFTWARE_VERSION)
                     .on(SOFTWARE_VERSION.ID.eq(SOFTWARE_USAGE.SOFTWARE_VERSION_ID))
                 .where(SOFTWARE_VERSION.SOFTWARE_PACKAGE_ID.eq(options.entityReference().id()))
@@ -258,12 +283,12 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
     private Select<Record1<Long>> mkForSoftwareVersion(IdSelectionOptions options) {
         SelectorUtilities.ensureScopeIsExact(options);
 
-        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(options);
+        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(app, options);
         return DSL
                 .selectDistinct(SOFTWARE_USAGE.APPLICATION_ID)
                 .from(SOFTWARE_USAGE)
-                .innerJoin(APPLICATION)
-                .on(APPLICATION.ID.eq(SOFTWARE_USAGE.APPLICATION_ID))
+                .innerJoin(app)
+                .on(app.ID.eq(SOFTWARE_USAGE.APPLICATION_ID))
                 .where(SOFTWARE_USAGE.SOFTWARE_VERSION_ID.eq(options.entityReference().id()))
                 .and(applicationConditions);
     }
@@ -272,12 +297,12 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
     private Select<Record1<Long>> mkForLicence(IdSelectionOptions options) {
         SelectorUtilities.ensureScopeIsExact(options);
 
-        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(options);
+        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(app, options);
         return DSL
                 .selectDistinct(SOFTWARE_USAGE.APPLICATION_ID)
                 .from(SOFTWARE_USAGE)
-                .innerJoin(APPLICATION)
-                    .on(APPLICATION.ID.eq(SOFTWARE_USAGE.APPLICATION_ID))
+                .innerJoin(app)
+                    .on(app.ID.eq(SOFTWARE_USAGE.APPLICATION_ID))
                 .innerJoin(SOFTWARE_VERSION_LICENCE)
                     .on(SOFTWARE_VERSION_LICENCE.SOFTWARE_VERSION_ID.eq(SOFTWARE_USAGE.SOFTWARE_VERSION_ID))
                 .where(SOFTWARE_VERSION_LICENCE.LICENCE_ID.eq(options.entityReference().id()))
@@ -288,11 +313,11 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
     private Select<Record1<Long>> mkForScenario(IdSelectionOptions options) {
         SelectorUtilities.ensureScopeIsExact(options);
 
-        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(options);
+        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(app, options);
         return DSL
                 .selectDistinct(SCENARIO_RATING_ITEM.DOMAIN_ITEM_ID)
                 .from(SCENARIO_RATING_ITEM)
-                .innerJoin(APPLICATION).on(APPLICATION.ID.eq(SCENARIO_RATING_ITEM.DOMAIN_ITEM_ID))
+                .innerJoin(app).on(app.ID.eq(SCENARIO_RATING_ITEM.DOMAIN_ITEM_ID))
                 .and(SCENARIO_RATING_ITEM.DOMAIN_ITEM_KIND.eq(EntityKind.APPLICATION.name()))
                 .where(SCENARIO_RATING_ITEM.SCENARIO_ID.eq(options.entityReference().id()))
                 .and(applicationConditions);
@@ -302,38 +327,39 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
     private Select<Record1<Long>> mkForServer(IdSelectionOptions options) {
         SelectorUtilities.ensureScopeIsExact(options);
 
-        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(options);
+        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(app, options);
 
         return DSL.selectDistinct(SERVER_USAGE.ENTITY_ID)
                 .from(SERVER_USAGE)
-                .innerJoin(APPLICATION).on(APPLICATION.ID.eq(SERVER_USAGE.ENTITY_ID))
+                .innerJoin(app).on(app.ID.eq(SERVER_USAGE.ENTITY_ID))
                 .where(SERVER_USAGE.SERVER_ID.eq(options.entityReference().id()))
                 .and(SERVER_USAGE.ENTITY_KIND.eq(EntityKind.APPLICATION.name()))
                 .and(applicationConditions);
     }
 
 
-    public static Select<Record1<Long>> mkForActor(IdSelectionOptions options) {
+    private static Select<Record1<Long>> mkViaFlows(IdSelectionOptions options) {
         SelectorUtilities.ensureScopeIsExact(options);
-        long actorId = options.entityReference().id();
+        long entityId = options.entityReference().id();
+        EntityKind entityKind = options.entityReference().kind();
 
-        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(options);
+        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(app, options);
 
         Select<Record1<Long>> sourceAppIds = DSL
                 .select(logicalFlow.SOURCE_ENTITY_ID)
                 .from(logicalFlow)
-                .innerJoin(APPLICATION).on(APPLICATION.ID.eq(logicalFlow.SOURCE_ENTITY_ID))
-                .where(logicalFlow.TARGET_ENTITY_ID.eq(actorId)
-                        .and(logicalFlow.TARGET_ENTITY_KIND.eq(EntityKind.ACTOR.name()))
+                .innerJoin(app).on(app.ID.eq(logicalFlow.SOURCE_ENTITY_ID))
+                .where(logicalFlow.TARGET_ENTITY_ID.eq(entityId)
                         .and(logicalFlow.SOURCE_ENTITY_KIND.eq(EntityKind.APPLICATION.name()))
+                        .and(logicalFlow.TARGET_ENTITY_KIND.eq(entityKind.name()))
                         .and(logicalFlow.ENTITY_LIFECYCLE_STATUS.ne(REMOVED.name())))
                         .and(applicationConditions);
 
         Select<Record1<Long>> targetAppIds = DSL.select(logicalFlow.TARGET_ENTITY_ID)
                 .from(logicalFlow)
-                .innerJoin(APPLICATION).on(APPLICATION.ID.eq(logicalFlow.TARGET_ENTITY_ID))
-                .where(logicalFlow.SOURCE_ENTITY_ID.eq(actorId)
-                        .and(logicalFlow.SOURCE_ENTITY_KIND.eq(EntityKind.ACTOR.name()))
+                .innerJoin(app).on(app.ID.eq(logicalFlow.TARGET_ENTITY_ID))
+                .where(logicalFlow.SOURCE_ENTITY_ID.eq(entityId)
+                        .and(logicalFlow.SOURCE_ENTITY_KIND.eq(entityKind.name()))
                         .and(logicalFlow.TARGET_ENTITY_KIND.eq(EntityKind.APPLICATION.name()))
                         .and(logicalFlow.ENTITY_LIFECYCLE_STATUS.ne(REMOVED.name())))
                         .and(applicationConditions);
@@ -354,13 +380,13 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
                 .where(FLOW_DIAGRAM_ENTITY.ENTITY_KIND.eq(EntityKind.LOGICAL_DATA_FLOW.name())
                         .and(FLOW_DIAGRAM_ENTITY.DIAGRAM_ID.eq(diagramId))));
 
-        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(options);
+        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(app, options);
 
         SelectConditionStep<Record1<Long>> directlyReferencedApps = DSL
                 .select(flowDiagram.ENTITY_ID)
                 .from(flowDiagram)
-                .innerJoin(APPLICATION)
-                .on(APPLICATION.ID.eq(flowDiagram.ENTITY_ID))
+                .innerJoin(app)
+                .on(app.ID.eq(flowDiagram.ENTITY_ID))
                 .where(flowDiagram.DIAGRAM_ID.eq(diagramId))
                 .and(flowDiagram.ENTITY_KIND.eq(EntityKind.APPLICATION.name()))
                 .and(applicationConditions);
@@ -368,8 +394,8 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
         SelectConditionStep<Record1<Long>> appsViaSourcesOfFlows = DSL
                 .select(LOGICAL_FLOW.SOURCE_ENTITY_ID)
                 .from(LOGICAL_FLOW)
-                .innerJoin(APPLICATION)
-                .on(APPLICATION.ID.eq(LOGICAL_FLOW.SOURCE_ENTITY_ID))
+                .innerJoin(app)
+                .on(app.ID.eq(LOGICAL_FLOW.SOURCE_ENTITY_ID))
                 .where(logicalFlowInClause)
                 .and(LOGICAL_FLOW.SOURCE_ENTITY_KIND.eq(EntityKind.APPLICATION.name()))
                 .and(applicationConditions);
@@ -377,8 +403,8 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
         SelectConditionStep<Record1<Long>> appsViaTargetsOfFlows = DSL
                 .select(LOGICAL_FLOW.TARGET_ENTITY_ID)
                 .from(LOGICAL_FLOW)
-                .innerJoin(APPLICATION)
-                .on(APPLICATION.ID.eq(LOGICAL_FLOW.TARGET_ENTITY_ID))
+                .innerJoin(app)
+                .on(app.ID.eq(LOGICAL_FLOW.TARGET_ENTITY_ID))
                 .where(logicalFlowInClause)
                 .and(LOGICAL_FLOW.TARGET_ENTITY_KIND.eq(EntityKind.APPLICATION.name()))
                 .and(applicationConditions);
@@ -393,13 +419,13 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
     private Select<Record1<Long>> mkForMeasurable(IdSelectionOptions options) {
         Select<Record1<Long>> measurableSelector = measurableIdSelectorFactory.apply(options);
 
-        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(options);
+        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(app, options);
 
         return DSL
                 .select(measurableRating.ENTITY_ID)
                 .from(measurableRating)
-                .innerJoin(APPLICATION)
-                    .on(APPLICATION.ID.eq(measurableRating.ENTITY_ID))
+                .innerJoin(app)
+                    .on(app.ID.eq(measurableRating.ENTITY_ID))
                 .where(measurableRating.ENTITY_KIND.eq(DSL.val(EntityKind.APPLICATION.name())))
                 .and(measurableRating.MEASURABLE_ID.in(measurableSelector))
                 .and(applicationConditions);
@@ -415,12 +441,12 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
     private Select<Record1<Long>> mkForEntityRelationship(IdSelectionOptions options) {
         SelectorUtilities.ensureScopeIsExact(options);
 
-        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(options);
+        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(app, options);
 
         Select<Record1<Long>> appToEntity = DSL.selectDistinct(ENTITY_RELATIONSHIP.ID_A)
                 .from(ENTITY_RELATIONSHIP)
-                .innerJoin(APPLICATION)
-                    .on(APPLICATION.ID.eq(ENTITY_RELATIONSHIP.ID_A))
+                .innerJoin(app)
+                    .on(app.ID.eq(ENTITY_RELATIONSHIP.ID_A))
                 .where(ENTITY_RELATIONSHIP.KIND_A.eq(EntityKind.APPLICATION.name()))
                 .and(ENTITY_RELATIONSHIP.KIND_B.eq(options.entityReference().kind().name()))
                 .and(ENTITY_RELATIONSHIP.ID_B.eq(options.entityReference().id()))
@@ -428,8 +454,8 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
 
         Select<Record1<Long>> entityToApp = DSL.selectDistinct(ENTITY_RELATIONSHIP.ID_B)
                 .from(ENTITY_RELATIONSHIP)
-                .innerJoin(APPLICATION)
-                    .on(APPLICATION.ID.eq(ENTITY_RELATIONSHIP.ID_B))
+                .innerJoin(app)
+                    .on(app.ID.eq(ENTITY_RELATIONSHIP.ID_B))
                 .where(ENTITY_RELATIONSHIP.KIND_B.eq(EntityKind.APPLICATION.name()))
                 .and(ENTITY_RELATIONSHIP.KIND_A.eq(options.entityReference().kind().name()))
                 .and(ENTITY_RELATIONSHIP.ID_A.eq(options.entityReference().id()))
@@ -450,12 +476,12 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
 
         Select<Record1<Long>> ouSelector = orgUnitIdSelectorFactory.apply(ouSelectorOptions);
 
-        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(options);
+        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(app, options);
 
         return DSL
-                .selectDistinct(APPLICATION.ID)
-                .from(APPLICATION)
-                .where(APPLICATION.ORGANISATIONAL_UNIT_ID.in(ouSelector))
+                .selectDistinct(app.ID)
+                .from(app)
+                .where(app.ORGANISATIONAL_UNIT_ID.in(ouSelector))
                 .and(applicationConditions);
     }
 
@@ -466,7 +492,7 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
                     "App Groups are not hierarchical therefore ignoring requested scope of: " + options.scope());
         }
 
-        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(options);
+        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(app, options);
 
         SelectConditionStep<Record1<Long>> associatedOrgUnits = DSL
                 .selectDistinct(ENTITY_HIERARCHY.ID)
@@ -477,10 +503,10 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
                 .where(APPLICATION_GROUP_OU_ENTRY.GROUP_ID.eq(options.entityReference().id()));
 
         SelectConditionStep<Record1<Long>> applicationIdsFromAssociatedOrgUnits = DSL
-                .select(APPLICATION.ID)
-                .from(APPLICATION)
+                .select(app.ID)
+                .from(app)
                 .innerJoin(ORGANISATIONAL_UNIT)
-                .on(APPLICATION.ORGANISATIONAL_UNIT_ID.eq(ORGANISATIONAL_UNIT.ID))
+                .on(app.ORGANISATIONAL_UNIT_ID.eq(ORGANISATIONAL_UNIT.ID))
                 .where(ORGANISATIONAL_UNIT.ID.in(associatedOrgUnits));
 
         SelectConditionStep<Record1<Long>> directApps = DSL
@@ -494,10 +520,10 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
                         .asTable());
 
         return DSL
-                .select(APPLICATION.ID)
-                .from(APPLICATION)
-                .where(APPLICATION.ID.in(appIds))
-                //                    .where(APPLICATION.ID.in(directApps).or(APPLICATION.ID.in(applicationIdsFromAssociatedOrgUnits)))
+                .select(app.ID)
+                .from(app)
+                .where(app.ID.in(appIds))
+                //                    .where(app.ID.in(directApps).or(app.ID.in(applicationIdsFromAssociatedOrgUnits)))
                 .and(applicationConditions);
     }
 
@@ -531,17 +557,19 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
                 .where(personHierarchy.MANAGER_ID.eq(emp)
                         .and(reportee.IS_REMOVED.isFalse()));
 
-        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(options);
+        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(app, options);
         Condition condition = involvement.ENTITY_KIND.eq(EntityKind.APPLICATION.name())
                 .and(involvement.EMPLOYEE_ID.eq(emp)
                         .or(involvement.EMPLOYEE_ID.in(reporteeIds)))
-                .and(applicationConditions);
+                .and(applicationConditions)
+                .and(involvementKind.TRANSITIVE.isTrue().or(involvement.EMPLOYEE_ID.eq(emp)));
 
         return DSL
                 .selectDistinct(involvement.ENTITY_ID)
                 .from(involvement)
-                .innerJoin(APPLICATION)
-                    .on(APPLICATION.ID.eq(involvement.ENTITY_ID))
+                .innerJoin(involvementKind).on(involvementKind.ID.eq(involvement.KIND_ID))
+                .innerJoin(app)
+                    .on(app.ID.eq(involvement.ENTITY_ID))
                 .where(condition);
     }
 
@@ -553,12 +581,12 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
                 .from(person)
                 .where(person.ID.eq(options.entityReference().id()));
 
-        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(options);
+        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(app, options);
         return DSL
                 .selectDistinct(involvement.ENTITY_ID)
                 .from(involvement)
-                .innerJoin(APPLICATION)
-                    .on(APPLICATION.ID.eq(involvement.ENTITY_ID))
+                .innerJoin(app)
+                    .on(app.ID.eq(involvement.ENTITY_ID))
                 .where(involvement.ENTITY_KIND.eq(EntityKind.APPLICATION.name()))
                 .and(involvement.EMPLOYEE_ID.eq(employeeId))
                 .and(applicationConditions);
@@ -573,7 +601,7 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
 
         Field<Long> appId = DSL.field("app_id", Long.class);
 
-        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(options);
+        Condition applicationConditions = SelectorUtilities.mkApplicationConditions(app, options);
 
         SelectConditionStep<Record1<Long>> sources = selectLogicalFlowAppsByDataType(
                 LOGICAL_FLOW.SOURCE_ENTITY_ID.as(appId),
@@ -601,8 +629,8 @@ public class ApplicationIdSelectorFactory implements Function<IdSelectionOptions
                 .from(LOGICAL_FLOW)
                 .innerJoin(LOGICAL_FLOW_DECORATOR)
                     .on(LOGICAL_FLOW_DECORATOR.LOGICAL_FLOW_ID.eq(LOGICAL_FLOW.ID))
-                .innerJoin(APPLICATION)
-                    .on(APPLICATION.ID.eq(joinField))
+                .innerJoin(app)
+                    .on(app.ID.eq(joinField))
                 .where(condition)
                 .and(LogicalFlowDao.LOGICAL_NOT_REMOVED);
     }

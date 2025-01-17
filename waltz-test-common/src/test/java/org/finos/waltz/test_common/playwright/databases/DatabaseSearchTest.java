@@ -4,7 +4,8 @@ import com.microsoft.playwright.Locator;
 import org.finos.waltz.model.EntityReference;
 import org.finos.waltz.test_common.helpers.DatabaseHelper;
 import org.finos.waltz.test_common.playwright.BasePlaywrightIntegrationTest;
-import org.finos.waltz.test_common.playwright.ScreenshotHelper;
+import org.finos.waltz.test_common.playwright.DocumentationHelper;
+import org.finos.waltz.test_common.playwright.SearchHelper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,7 +17,6 @@ import static java.lang.String.format;
 import static org.finos.waltz.common.StringUtilities.mkPath;
 import static org.finos.waltz.test_common.helpers.NameHelper.mkName;
 import static org.finos.waltz.test_common.playwright.PlaywrightUtilities.login;
-import static org.finos.waltz.test_common.playwright.PlaywrightUtilities.startSiteSearch;
 
 public class DatabaseSearchTest extends BasePlaywrightIntegrationTest {
 
@@ -40,31 +40,19 @@ public class DatabaseSearchTest extends BasePlaywrightIntegrationTest {
 
     @Test
     public void exactSearch() {
-        ScreenshotHelper screenshotHelper = new ScreenshotHelper(
+        DocumentationHelper documentationHelper = new DocumentationHelper(
                 page,
-                "screenshots/databases/search");
+                "databases/search");
 
-        startSiteSearch(
-                page,
-                dbRef.name().orElse("??"));
+        SearchHelper searchHelper = new SearchHelper(page);
+        searchHelper.search(dbRef.name().orElse("??"));
+        Locator result = searchHelper.waitForResult(dbRef.name().orElse("?"));
 
-        Locator resultLocator = page
-                .locator(".wnso-search-results")
-                .locator(format(
-                        "text=%s",
-                        dbRef.name().orElse("?")));
-
-        resultLocator.waitFor();
-
-        screenshotHelper.takePageSnapshot(
-                resultLocator,
+        documentationHelper.takePageSnapshot(
+                result,
                 "after-typing.png");
 
-        resultLocator
-                .click();
-
-        // wait for search panel to be removed
-        assertThat(page.locator(".wnso-search-results")).isHidden();
+        searchHelper.click(result);
 
         Locator dbPageTitleLocator = page
                 .locator(".waltz-display-section")
@@ -73,6 +61,6 @@ public class DatabaseSearchTest extends BasePlaywrightIntegrationTest {
 
         assertThat(dbPageTitleLocator).isVisible();
 
-        screenshotHelper.takePageSnapshot(dbPageTitleLocator, "clicked-link.png");
+        documentationHelper.takePageSnapshot(dbPageTitleLocator, "clicked-link.png");
     }
 }

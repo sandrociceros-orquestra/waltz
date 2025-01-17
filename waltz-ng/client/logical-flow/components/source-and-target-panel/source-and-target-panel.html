@@ -18,11 +18,12 @@
 
 <div class="row waltz-source-and-target-panel">
     <div class="col-sm-12 waltz-visibility-parent">
-        <waltz-source-and-target-graph flow-classifications-by-code="$ctrl.flowClassificationsByCode"
+        <waltz-source-and-target-graph flow-classifications="$ctrl.flowClassifications"
                                        change-units="$ctrl.changeUnits"
                                        decorators="$ctrl.filteredFlowData.decorators"
                                        entity-ref="$ctrl.entityRef"
                                        logical-flows="$ctrl.filteredFlowData.flows"
+                                       rating-direction="$ctrl.ratingDirection"
                                        tweakers="$ctrl.tweakers">
         </waltz-source-and-target-graph>
         <div ng-if="$ctrl.filterFlags.nodeFilterApplied || $ctrl.filterFlags.typeFilterApplied || $ctrl.filterFlags.tagFilterApplied"
@@ -134,6 +135,10 @@
             </a>
         </h4>
 
+        <div class="small help-block">
+            <span ng-bind="$ctrl.selected.logicalFlow.externalId"></span>
+        </div>
+
         <div>
             <a ng-click="$ctrl.focusOnEntity($ctrl.selected)"
                class="clickable">
@@ -153,17 +158,18 @@
         <strong>Data Types</strong>
         <div ng-if="$ctrl.selected.types.length > 0" class="wsatp-data-types">
             <ul class="list-inline">
-                <li ng-repeat='type in $ctrl.selected.types'
+                <li ng-repeat="type in $ctrl.selected.types | orderBy:'name'"
                     style="padding-bottom: 2px">
-                    <div style="display: inline-block; height: 1em; width: 1em; border:1px solid #ccc; border-radius: 2px;"
-                         ng-style="{'background-color': $ctrl.flowClassificationsByCode[type.rating].color}">
-                    </div>
+                    <waltz-svelte-component component="$ctrl.FlowRatingCell"
+                                            target-inbound-classification="$ctrl.inboundClassificationsByCode[type.inboundRating]"
+                                            source-outbound-classification="$ctrl.outboundClassificationsByCode[type.rating]">
+                    </waltz-svelte-component>
                     <waltz-entity-link entity-ref="{kind: 'DATA_TYPE',
                                                     id: type.id,
                                                     name: type.name}"
                                        icon-placement="none"
                                        tooltip-placement="top"
-                                       additional-display-data="[{name: 'Rating', value: $ctrl.flowClassificationsByCode[type.rating].name}]">
+                                       additional-display-data="[{name: 'Producer Rating', value: $ctrl.flowClassificationsByCode[type.rating].name}, {name: 'Consumer Rating', value: $ctrl.flowClassificationsByCode[type.inboundRating].name}]">
                     </waltz-entity-link>
                 </li>
             </ul>
@@ -173,7 +179,7 @@
             <hr>
             <strong>Tags</strong>
             <ul class="waltz-keyword-list small">
-                <li ng-repeat="tag in $ctrl.selected.tags"
+                <li ng-repeat="tag in $ctrl.selected.tags | orderBy:'name'"
                     class="wkl-keyword"
                     style="padding-bottom: 2px">
                     <span ng-bind="tag.name"></span>
@@ -201,6 +207,9 @@
                 <thead>
                 <tr>
                     <th>Name</th>
+                    <th>External ID</th>
+                    <th>Specification</th>
+                    <th>Specification Ext ID</th>
                     <th>Format</th>
                     <th>Transport</th>
                     <th>Frequency</th>
@@ -210,13 +219,25 @@
                 <tr ng-repeat="pf in $ctrl.selected.physicalFlows">
                     <td>
                         <a ui-sref="main.physical-flow.view ({ id: pf.id })">
-                            <span ng-bind="pf.specification.name"></span>
+                            <span ng-bind="pf.name" ng-if="pf.name"></span>
+                            <span ng-if="!pf.name"><waltz-icon name="arrows-turn-to-dots"></waltz-icon> - </span>
                         </a>
                         &nbsp;
                         <waltz-icon name="hourglass-2"
                                     ng-if="$ctrl.selected.changeUnitsByPhysicalFlowId[pf.id]"
                                     uib-tooltip="Changes planned for this physical flow">
                         </waltz-icon>
+                    </td>
+                    <td title="{{pf.externalId}}">
+                        <span ng-bind="pf.externalId | truncate:15"></span>
+                    </td>
+                    <td>
+                        <a ui-sref="main.physical-specification.view ({ id: pf.specification.id })">
+                            <span ng-bind="pf.specification.name"></span>
+                        </a>
+                    </td>
+                    <td title="{{pf.specification.externalId}}">
+                        <span ng-bind="pf.specification.externalId | truncate:15"></span>
                     </td>
                     <td>
                         <waltz-enum-value type="'DataFormatKind'"

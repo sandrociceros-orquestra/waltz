@@ -33,6 +33,8 @@ import {sameRef} from "../../../common/entity-utils";
 import {appLogicalFlowFilterExcludedTagIdsKey} from "../../../user";
 import {loadFlowClassificationRatings} from "../../../flow-classification-rule/flow-classification-utils";
 import ImageDownloadLink from "../../../common/svelte/ImageDownloadLink.svelte";
+import FlowRatingCell from "../../../common/svelte/FlowRatingCell.svelte"
+import {flowDirection as FlowDirection} from "../../../common/services/enums/flow-direction";
 
 const bindings = {
     entityRef: "<",
@@ -41,7 +43,8 @@ const bindings = {
     decorators: "<",
     physicalFlows: "<",
     physicalSpecifications: "<",
-    tags: "<"
+    tags: "<",
+    ratingDirection: "<"
 };
 
 
@@ -66,7 +69,8 @@ const initialState = {
     tags: [],
     flowClassificationsByCode: [],
     ImageDownloadLink,
-    diagramElem: null
+    diagramElem: null,
+    FlowRatingCell
 };
 
 
@@ -122,6 +126,7 @@ function mkTypeInfo(decorators = [], dataTypes) {
             return {
                 id: x.decoratorEntity.id,
                 rating: x.rating,
+                inboundRating: x.targetInboundRating,
                 name: _.get(dataTypes, x.decoratorEntity.id).name
             };
         }))
@@ -222,7 +227,24 @@ function controller($element,
 
     vm.$onInit = () => {
         loadFlowClassificationRatings(serviceBroker)
-            .then(r => vm.flowClassificationsByCode = _.keyBy(r, d => d.code));
+            .then(r => {
+                vm.flowClassifications = r;
+
+                vm.inboundClassificationsByCode = _
+                    .chain(r)
+                    .filter(d => d.direction === FlowDirection.INBOUND.key)
+                    .keyBy(d => d.code)
+                    .value();
+                vm.outboundClassificationsByCode = _
+                    .chain(r)
+                    .filter(d => d.direction === FlowDirection.OUTBOUND.key)
+                    .keyBy(d => d.code)
+                    .value()
+
+                vm.flowClassificationsByCode = vm.ratingDirection === FlowDirection.INBOUND.key
+                    ? vm.inboundClassificationsByCode
+                    : vm.outboundClassificationsByCode;
+            });
 
         serviceBroker
             .loadViewData(CORE_API.DataTypeStore.findAll)
@@ -234,7 +256,24 @@ function controller($element,
     vm.$onChanges = (changes) => {
 
         loadFlowClassificationRatings(serviceBroker)
-            .then(r => vm.flowClassificationsByCode = _.keyBy(r, d => d.code));
+            .then(r => {
+                vm.flowClassifications = r;
+
+                vm.inboundClassificationsByCode = _
+                    .chain(r)
+                    .filter(d => d.direction === FlowDirection.INBOUND.key)
+                    .keyBy(d => d.code)
+                    .value();
+                vm.outboundClassificationsByCode = _
+                    .chain(r)
+                    .filter(d => d.direction === FlowDirection.OUTBOUND.key)
+                    .keyBy(d => d.code)
+                    .value()
+
+                vm.flowClassificationsByCode = vm.ratingDirection === FlowDirection.INBOUND.key
+                    ? vm.inboundClassificationsByCode
+                    : vm.outboundClassificationsByCode;
+            });
 
         if (changes.logicalFlows || changes.decorators) {
             vm.resetNodeAndTypeFilter();
@@ -359,7 +398,11 @@ function controller($element,
             "Target",
             "Target code",
             "Data Types",
-            "Tags"
+            "Tags",
+            "Created At",
+            "Created By",
+            "Last Updated At",
+            "Last Updated By"
         ];
 
         const dataTypesByFlowId = _
@@ -418,7 +461,11 @@ function controller($element,
                         f.target.name,
                         resolveCode(f.target),
                         calcDataTypes(f.id),
-                        calcTags(f.id)
+                        calcTags(f.id),
+                        f.created.at,
+                        f.created.by,
+                        f.lastUpdatedAt,
+                        f.lastUpdatedBy
                     ]
                 });
 

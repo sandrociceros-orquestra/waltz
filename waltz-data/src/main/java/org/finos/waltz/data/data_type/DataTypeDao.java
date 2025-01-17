@@ -23,6 +23,7 @@ import org.finos.waltz.model.EntityKind;
 import org.finos.waltz.model.EntityLifecycleStatus;
 import org.finos.waltz.model.EntityReference;
 import org.finos.waltz.model.datatype.DataType;
+import org.finos.waltz.model.datatype.DataTypeMigrationResult;
 import org.finos.waltz.model.datatype.ImmutableDataType;
 import org.finos.waltz.schema.tables.records.DataTypeRecord;
 import org.jooq.Condition;
@@ -76,6 +77,12 @@ public class DataTypeDao implements FindEntityReferencesByIdSelector {
         this.dsl = dsl;
     }
 
+    public DataTypeMigrationResult migrate(Long fromId, Long toId, boolean deleteOldDataType) {
+        return dsl.transactionResult(ctx -> {
+            DSLContext tx = ctx.dsl();
+            return DataTypeUtilities.migrate(tx, fromId, toId, deleteOldDataType);
+        });
+    }
 
     public List<DataType> findAll() {
         return dsl
@@ -95,6 +102,17 @@ public class DataTypeDao implements FindEntityReferencesByIdSelector {
                 .from(DATA_TYPE)
                 .where(DATA_TYPE.ID.in(selector))
                 .fetch(TO_ENTITY_REFERENCE);
+    }
+
+
+    public Set<DataType> findByIdSelector(Select<Record1<Long>> selector) {
+        checkNotNull(selector, "selector cannot be null");
+
+        return dsl
+                .select(DATA_TYPE.asterisk())
+                .from(DATA_TYPE)
+                .where(DATA_TYPE.ID.in(selector))
+                .fetchSet(TO_DOMAIN);
     }
 
 
@@ -151,4 +169,12 @@ public class DataTypeDao implements FindEntityReferencesByIdSelector {
             .fetchSet(TO_DOMAIN);
     }
 
+    public Collection<DataType> findByParentId(long id) {
+        return dsl
+                .selectDistinct(DATA_TYPE.fields())
+                .from(DATA_TYPE)
+                .where(DATA_TYPE.PARENT_ID.eq(id))
+                .orderBy(DATA_TYPE.NAME)
+                .fetchSet(TO_DOMAIN);
+    }
 }

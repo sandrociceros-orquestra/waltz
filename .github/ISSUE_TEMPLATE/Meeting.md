@@ -4,8 +4,17 @@ about: To track Waltz meeting agenda and attendance
 ---
 
 ## Date
-Thursday DD MMM yyyy - 10am ET / 3pm UK
-Occurs the second Thursday of every month 
+Monday DD MMM yyyy - 8am EST / 1pm UK
+Occurs the second Monday of every month 
+
+## Zoom 
+Join Zoom Meeting
+https://zoom.us/j/98495304665
+
+Meeting ID: 984 9530 4665
+Passcode: 202795
+
+Find your local number: https://zoom.us/u/aeyTu3Q7E8
 
 ## Untracked attendees
 | Name | Firm | Comment |
@@ -22,7 +31,7 @@ Occurs the second Thursday of every month
 
 ## Agenda
 - [ ] Convene, roll call, welcome new people (5mins)
-- [ ] Display [FINOS Antitrust Policy summary slide](https://github.com/finos/community/blob/master/governance/Compliance-Slides/Antitrust-Compliance-Slide.pdf) 
+- [ ] Display [FINOS Antitrust Policy summary slide](https://community.finos.org/Compliance-Slides/Antitrust-Compliance-Slide.pdf) 
 - [ ] Review Meeting Notices (see above)
 - [ ] Approve previous meeting minutes - https://github.com/finos/waltz/issues?q=is%3Aissue+is%3Aclosed+label%3Ameeting
 - [ ] _Add Items Here_
@@ -33,16 +42,5 @@ Occurs the second Thursday of every month
 
 ## Action Items
 - [ ] ...
-
-### WebEx info
-**Webex:** 
-https://finos.webex.com/finos/j.php?MTID=m00a97bac66d1324e1ca89b9bb4eb37c6
-
-**Dial-in**
-- **US** +1-415-655-0003 US Toll
-- **UK** +44-20319-88141 UK Toll
-- **Access code:** 2554 479 5248
-
-**Github Repo:** https://github.com/finos/waltz/
 
 **Project Microsite:** https://waltz.finos.org 

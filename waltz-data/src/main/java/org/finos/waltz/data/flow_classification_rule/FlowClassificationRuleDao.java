@@ -18,31 +18,57 @@
 
 package org.finos.waltz.data.flow_classification_rule;
 
-import org.finos.waltz.schema.tables.Application;
-import org.finos.waltz.schema.tables.EntityHierarchy;
-import org.finos.waltz.schema.tables.records.FlowClassificationRuleRecord;
 import org.finos.waltz.data.InlineSelectFieldFactory;
 import org.finos.waltz.model.EntityKind;
 import org.finos.waltz.model.EntityReference;
+import org.finos.waltz.model.FlowDirection;
 import org.finos.waltz.model.ImmutableEntityReference;
-import org.finos.waltz.model.flow_classification_rule.*;
+import org.finos.waltz.model.MessageSeverity;
+import org.finos.waltz.model.datatype.FlowDataType;
+import org.finos.waltz.model.flow_classification_rule.DiscouragedSource;
+import org.finos.waltz.model.flow_classification_rule.FlowClassificationRule;
+import org.finos.waltz.model.flow_classification_rule.FlowClassificationRuleCreateCommand;
+import org.finos.waltz.model.flow_classification_rule.FlowClassificationRuleUpdateCommand;
+import org.finos.waltz.model.flow_classification_rule.FlowClassificationRuleVantagePoint;
+import org.finos.waltz.model.flow_classification_rule.ImmutableDiscouragedSource;
+import org.finos.waltz.model.flow_classification_rule.ImmutableFlowClassificationRule;
+import org.finos.waltz.model.flow_classification_rule.ImmutableFlowClassificationRuleVantagePoint;
 import org.finos.waltz.model.rating.AuthoritativenessRatingValue;
-import org.jooq.*;
+import org.finos.waltz.schema.tables.Application;
+import org.finos.waltz.schema.tables.EntityHierarchy;
+import org.finos.waltz.schema.tables.records.FlowClassificationRuleRecord;
+import org.finos.waltz.schema.tables.records.LogicalFlowDecoratorRecord;
+import org.jooq.AggregateFunction;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.InsertSetMoreStep;
+import org.jooq.Record;
+import org.jooq.Record1;
+import org.jooq.Record11;
+import org.jooq.Record2;
+import org.jooq.Record3;
+import org.jooq.RecordMapper;
+import org.jooq.Result;
+import org.jooq.Select;
+import org.jooq.SelectConditionStep;
+import org.jooq.SelectOnConditionStep;
+import org.jooq.SelectSeekStep2;
+import org.jooq.SelectSeekStep6;
+import org.jooq.UpdateConditionStep;
+import org.jooq.UpdateSetMoreStep;
 import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-import static org.finos.waltz.schema.Tables.FLOW_CLASSIFICATION;
-import static org.finos.waltz.schema.Tables.FLOW_CLASSIFICATION_RULE;
-import static org.finos.waltz.schema.tables.Application.APPLICATION;
-import static org.finos.waltz.schema.tables.EntityHierarchy.ENTITY_HIERARCHY;
-import static org.finos.waltz.schema.tables.LogicalFlow.LOGICAL_FLOW;
-import static org.finos.waltz.schema.tables.LogicalFlowDecorator.LOGICAL_FLOW_DECORATOR;
-import static org.finos.waltz.schema.tables.OrganisationalUnit.ORGANISATIONAL_UNIT;
 import static java.util.stream.Collectors.collectingAndThen;
 import static org.finos.waltz.common.Checks.checkNotNull;
 import static org.finos.waltz.common.Checks.checkTrue;
@@ -54,6 +80,13 @@ import static org.finos.waltz.common.SetUtilities.union;
 import static org.finos.waltz.data.application.ApplicationDao.IS_ACTIVE;
 import static org.finos.waltz.model.EntityLifecycleStatus.REMOVED;
 import static org.finos.waltz.model.EntityReference.mkRef;
+import static org.finos.waltz.schema.Tables.FLOW_CLASSIFICATION;
+import static org.finos.waltz.schema.Tables.FLOW_CLASSIFICATION_RULE;
+import static org.finos.waltz.schema.tables.Application.APPLICATION;
+import static org.finos.waltz.schema.tables.EntityHierarchy.ENTITY_HIERARCHY;
+import static org.finos.waltz.schema.tables.LogicalFlow.LOGICAL_FLOW;
+import static org.finos.waltz.schema.tables.LogicalFlowDecorator.LOGICAL_FLOW_DECORATOR;
+import static org.finos.waltz.schema.tables.OrganisationalUnit.ORGANISATIONAL_UNIT;
 
 
 @Repository
@@ -61,6 +94,8 @@ public class FlowClassificationRuleDao {
 
     public final static Application CONSUMER_APP = APPLICATION.as("consumer");
     public final static Application SUPPLIER_APP = APPLICATION.as("supplier");
+    public final static Application SUBJECT_APP = APPLICATION.as("subject_app");
+    public final static Application SUBJECT_EUDA = APPLICATION.as("subject_euda");
     public static final org.finos.waltz.schema.tables.DataType parent_dt = org.finos.waltz.schema.tables.DataType.DATA_TYPE.as("parent_dt");
     public static final org.finos.waltz.schema.tables.DataType child_dt = org.finos.waltz.schema.tables.DataType.DATA_TYPE.as("child_dt");
     public static final EntityHierarchy eh = ENTITY_HIERARCHY.as("eh");
@@ -70,23 +105,18 @@ public class FlowClassificationRuleDao {
 
     private final static EntityHierarchy ehOrgUnit = ENTITY_HIERARCHY.as("ehOrgUnit");
     private final static EntityHierarchy ehDataType = ENTITY_HIERARCHY.as("ehDataType");
-    private final static org.finos.waltz.schema.tables.DataType declaredDataType = org.finos.waltz.schema.tables.DataType.DATA_TYPE.as("declaredDataType");
-    private final static org.finos.waltz.schema.tables.DataType impliedDataType = org.finos.waltz.schema.tables.DataType.DATA_TYPE.as("impliedDataType");
-
-    private final static Field<Long> targetOrgUnitId = ehOrgUnit.ID.as("targetOrgUnitId");
-    private final static Field<Integer> declaredOrgUnitLevel = ehOrgUnit.LEVEL.as("declaredOrgUnitLevel");
-    private final static Field<Long> declaredDataTypeId = ehDataType.ID.as("declaredDataTypeId");
-    private final static Field<Integer> declaredDataTypeLevel = ehDataType.LEVEL.as("declaredDataTypeLevel");
-
+    public static final Field<Long> vantagePointId = DSL.coalesce(ehOrgUnit.ID, FLOW_CLASSIFICATION_RULE.PARENT_ID);
+    public static final Field<Integer> vantagePointLevel = DSL.coalesce(ehOrgUnit.LEVEL, 0).as("parentLevel");
+    public static final Field<Integer> dataTypeLevel = DSL.coalesce(ehDataType.LEVEL, 0).as("dataTypeLevel");
     private static final Field<String> PARENT_NAME_FIELD = InlineSelectFieldFactory.mkNameField(
             FLOW_CLASSIFICATION_RULE.PARENT_ID,
             FLOW_CLASSIFICATION_RULE.PARENT_KIND,
-            newArrayList(EntityKind.ORG_UNIT, EntityKind.APPLICATION, EntityKind.ACTOR));
+            newArrayList(EntityKind.ORG_UNIT, EntityKind.APPLICATION, EntityKind.ACTOR, EntityKind.END_USER_APPLICATION));
 
     private static final Field<String> SUBJECT_NAME_FIELD = InlineSelectFieldFactory.mkNameField(
             FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_ID,
             FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_KIND,
-            newArrayList(EntityKind.APPLICATION, EntityKind.ACTOR));
+            newArrayList(EntityKind.APPLICATION, EntityKind.ACTOR, EntityKind.END_USER_APPLICATION));
 
     private static final Condition flowNotRemoved = LOGICAL_FLOW.ENTITY_LIFECYCLE_STATUS.ne(REMOVED.name())
             .and(LOGICAL_FLOW.IS_REMOVED.isFalse());
@@ -132,20 +162,26 @@ public class FlowClassificationRuleDao {
                 .lastUpdatedBy(record.getLastUpdatedBy())
                 .externalId(Optional.ofNullable(record.getExternalId()))
                 .isReadonly(record.getIsReadonly())
+                .message(record.getMessage())
+                .messageSeverity(MessageSeverity.valueOf(record.getMessageSeverity()))
                 .build();
     };
 
 
-    private static final RecordMapper<Record, FlowClassificationRuleVantagePoint> TO_VANTAGE_MAPPER = r -> ImmutableFlowClassificationRuleVantagePoint
-            .builder()
-            .vantagePoint(mkRef(EntityKind.ORG_UNIT, r.get(targetOrgUnitId)))
-            .vantagePointRank(r.get(declaredOrgUnitLevel))
-            .subjectReference(mkRef(EntityKind.valueOf(r.get(FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_KIND)), r.get(FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_ID)))
-            .classificationCode(r.get(FLOW_CLASSIFICATION.CODE))
-            .dataType(mkRef(EntityKind.DATA_TYPE, r.get(declaredDataTypeId)))
-            .dataTypeRank(r.get(declaredDataTypeLevel))
-            .ruleId(r.get(FLOW_CLASSIFICATION_RULE.ID))
-            .build();
+    private static final RecordMapper<Record, FlowClassificationRuleVantagePoint> TO_VANTAGE_MAPPER = r -> {
+        return ImmutableFlowClassificationRuleVantagePoint
+                .builder()
+                .vantagePoint(mkRef(EntityKind.valueOf(r.get(FLOW_CLASSIFICATION_RULE.PARENT_KIND)), r.get(vantagePointId))) // could be child org unit
+                .vantagePointRank(r.get(vantagePointLevel))
+                .subjectReference(mkRef(EntityKind.valueOf(r.get(FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_KIND)), r.get(FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_ID)))
+                .classificationCode(r.get(FLOW_CLASSIFICATION.CODE))
+                .dataTypeId(r.get(ehDataType.ID))
+                .dataTypeRank(r.get(dataTypeLevel))
+                .ruleId(r.get(FLOW_CLASSIFICATION_RULE.ID))
+                .message(r.get(FLOW_CLASSIFICATION_RULE.MESSAGE))
+                .messageSeverity(MessageSeverity.valueOf(r.get(FLOW_CLASSIFICATION_RULE.MESSAGE_SEVERITY)))
+                .build();
+    };
 
 
 
@@ -205,7 +241,16 @@ public class FlowClassificationRuleDao {
         UpdateSetMoreStep<FlowClassificationRuleRecord> upd = dsl
                 .update(FLOW_CLASSIFICATION_RULE)
                 .set(FLOW_CLASSIFICATION_RULE.FLOW_CLASSIFICATION_ID, command.classificationId())
-                .set(FLOW_CLASSIFICATION_RULE.DESCRIPTION, command.description());
+                .set(FLOW_CLASSIFICATION_RULE.DESCRIPTION, command.description())
+                .set(FLOW_CLASSIFICATION_RULE.DIRECTION, DSL
+                        .select(FLOW_CLASSIFICATION.DIRECTION)
+                        .from(FLOW_CLASSIFICATION)
+                        .where(FLOW_CLASSIFICATION.ID.eq(command.classificationId())));
+
+        if (command.severity() != null) {
+            upd.set(FLOW_CLASSIFICATION_RULE.MESSAGE_SEVERITY, command.severity().name());
+            upd.set(FLOW_CLASSIFICATION_RULE.MESSAGE, command.message());
+        }
 
         return upd
                 .where(FLOW_CLASSIFICATION_RULE.ID.eq(command.id().get()))
@@ -216,7 +261,7 @@ public class FlowClassificationRuleDao {
     public long insert(FlowClassificationRuleCreateCommand command, String username) {
         checkNotNull(command, "command cannot be null");
 
-        return dsl
+        InsertSetMoreStep<FlowClassificationRuleRecord> stmt = dsl
                 .insertInto(FLOW_CLASSIFICATION_RULE)
                 .set(FLOW_CLASSIFICATION_RULE.PARENT_KIND, command.parentReference().kind().name())
                 .set(FLOW_CLASSIFICATION_RULE.PARENT_ID, command.parentReference().id())
@@ -228,6 +273,17 @@ public class FlowClassificationRuleDao {
                 .set(FLOW_CLASSIFICATION_RULE.PROVENANCE, "waltz")
                 .set(FLOW_CLASSIFICATION_RULE.LAST_UPDATED_AT, nowUtcTimestamp())
                 .set(FLOW_CLASSIFICATION_RULE.LAST_UPDATED_BY, username)
+                .set(FLOW_CLASSIFICATION_RULE.DIRECTION, DSL
+                        .select(FLOW_CLASSIFICATION.DIRECTION)
+                        .from(FLOW_CLASSIFICATION)
+                        .where(FLOW_CLASSIFICATION.ID.eq(command.classificationId())));
+
+        if (command.severity() != null) {
+            stmt.set(FLOW_CLASSIFICATION_RULE.MESSAGE_SEVERITY, command.severity().name());
+            stmt.set(FLOW_CLASSIFICATION_RULE.MESSAGE, command.message());
+        }
+
+        return stmt
                 .returning(FLOW_CLASSIFICATION_RULE.ID)
                 .fetchOne()
                 .getId();
@@ -285,6 +341,8 @@ public class FlowClassificationRuleDao {
     }
 
 
+    /* deprecating as we need to work on improving the speed of on-demand recalcs */
+    @Deprecated
     public int clearRatingsForPointToPointFlows(FlowClassificationRule rule) {
 
         // this may wipe any lower level explicit datatype mappings but these will be restored by the nightly job
@@ -313,62 +371,113 @@ public class FlowClassificationRuleDao {
     }
 
 
-    public List<FlowClassificationRuleVantagePoint> findExpandedFlowClassificationRuleVantagePoints(Set<Long> orgIds) {
-        SelectSeekStep3<Record8<Long, Integer, Long, Integer, Long, String, String, Long>, Integer, Integer, Long> select = dsl
-                .select(targetOrgUnitId,
-                        declaredOrgUnitLevel,
-                        declaredDataTypeId,
-                        declaredDataTypeLevel,
+    public List<FlowClassificationRuleVantagePoint> findExpandedFlowClassificationRuleVantagePoints(FlowDirection direction,
+                                                                                                    Set<Long> orgVantagePointIds,
+                                                                                                    Set<Long> appVantagePointIds,
+                                                                                                    Set<Long> actorVantagePointIds) {
+
+        Condition appVantagePointCondition = FLOW_CLASSIFICATION_RULE.PARENT_KIND.eq(EntityKind.APPLICATION.name())
+                .and(FLOW_CLASSIFICATION_RULE.PARENT_ID.in(appVantagePointIds));
+
+        Condition actorVantagePointCondition = FLOW_CLASSIFICATION_RULE.PARENT_KIND.eq(EntityKind.ACTOR.name())
+                .and(FLOW_CLASSIFICATION_RULE.PARENT_ID.in(actorVantagePointIds));
+
+        Condition orgUnitVantagePointCondition = FLOW_CLASSIFICATION_RULE.PARENT_KIND.eq(EntityKind.ORG_UNIT.name())
+                .and(ehOrgUnit.ID.in(orgVantagePointIds));
+
+        Condition vantagePointCondition = appVantagePointCondition
+                .or(actorVantagePointCondition)
+                .or(orgUnitVantagePointCondition);
+
+        SelectConditionStep<Record11<Long, String, Integer, Long, Integer, Long, String, String, Long, String, String>> select = dsl
+                .select(vantagePointId,
+                        FLOW_CLASSIFICATION_RULE.PARENT_KIND,
+                        vantagePointLevel,
+                        ehDataType.ID,
+                        dataTypeLevel,
                         FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_ID,
                         FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_KIND,
                         FLOW_CLASSIFICATION.CODE,
-                        FLOW_CLASSIFICATION_RULE.ID)
-                .from(ehOrgUnit)
-                .innerJoin(FLOW_CLASSIFICATION_RULE)
-                    .on(ehOrgUnit.ANCESTOR_ID.eq(FLOW_CLASSIFICATION_RULE.PARENT_ID).and(ehOrgUnit.KIND.eq(EntityKind.ORG_UNIT.name())))
-                .innerJoin(declaredDataType)
-                    .on(declaredDataType.ID.eq(FLOW_CLASSIFICATION_RULE.DATA_TYPE_ID))
-                .innerJoin(ehDataType)
-                    .on(ehDataType.ANCESTOR_ID.eq(declaredDataType.ID).and(ehDataType.KIND.eq(EntityKind.DATA_TYPE.name())))
-                .innerJoin(impliedDataType)
-                    .on(impliedDataType.ID.eq(ehDataType.ID).and(ehDataType.KIND.eq(EntityKind.DATA_TYPE.name())))
-                .innerJoin(FLOW_CLASSIFICATION).on(FLOW_CLASSIFICATION_RULE.FLOW_CLASSIFICATION_ID.eq(FLOW_CLASSIFICATION.ID))
-                .where(ehOrgUnit.ID.in(orgIds))
-                .orderBy(ehOrgUnit.LEVEL.desc(), ehDataType.LEVEL.desc(), ehOrgUnit.ID);
+                        FLOW_CLASSIFICATION_RULE.ID,
+                        FLOW_CLASSIFICATION_RULE.MESSAGE,
+                        FLOW_CLASSIFICATION_RULE.MESSAGE_SEVERITY)
+                .from(FLOW_CLASSIFICATION_RULE)
+                .innerJoin(FLOW_CLASSIFICATION).on(FLOW_CLASSIFICATION.DIRECTION.eq(direction.name())
+                        .and(FLOW_CLASSIFICATION_RULE.FLOW_CLASSIFICATION_ID.eq(FLOW_CLASSIFICATION.ID)))
+                .leftJoin(ehDataType)
+                    .on(ehDataType.KIND.eq(EntityKind.DATA_TYPE.name())
+                            .and(ehDataType.ANCESTOR_ID.eq(FLOW_CLASSIFICATION_RULE.DATA_TYPE_ID)))
+                .leftJoin(ehOrgUnit)
+                .on(FLOW_CLASSIFICATION_RULE.PARENT_KIND.eq(EntityKind.ORG_UNIT.name())
+                        .and(ehOrgUnit.KIND.eq(EntityKind.ORG_UNIT.name())
+                                .and(ehOrgUnit.ANCESTOR_ID.eq(FLOW_CLASSIFICATION_RULE.PARENT_ID)
+                                        .and(ehOrgUnit.ID.in(orgVantagePointIds)))))
+                .where(vantagePointCondition);
 
-        return select
-                .fetch(TO_VANTAGE_MAPPER);
+        return select.fetch(TO_VANTAGE_MAPPER);
     }
 
 
-    public List<FlowClassificationRuleVantagePoint> findFlowClassificationRuleVantagePoints() {
-        SelectSeekStep4<Record8<Long, Integer, Long, Integer, Long, String, String, Long>, Integer, Integer, Long, Long> select = dsl
-                .select(targetOrgUnitId,
-                        declaredOrgUnitLevel,
-                        declaredDataTypeId,
-                        declaredDataTypeLevel,
+    public List<FlowClassificationRuleVantagePoint> findFlowClassificationRuleVantagePoints(FlowDirection direction) {
+        return findFlowClassificationRuleVantagePoints(FLOW_CLASSIFICATION.DIRECTION.eq(direction.name()));
+    }
+
+
+    public List<FlowClassificationRuleVantagePoint> findFlowClassificationRuleVantagePoints(FlowDirection direction,
+                                                                                            Set<Long> dataTypeIdsToConsider) {
+        return findFlowClassificationRuleVantagePoints(
+                FLOW_CLASSIFICATION.DIRECTION.eq(direction.name())
+                        .and(FLOW_CLASSIFICATION_RULE.DATA_TYPE_ID.in(dataTypeIdsToConsider).or(FLOW_CLASSIFICATION_RULE.DATA_TYPE_ID.isNull())));
+    }
+
+
+
+    public List<FlowClassificationRuleVantagePoint> findFlowClassificationRuleVantagePoints(FlowDirection direction,
+                                                                                            org.finos.waltz.model.entity_hierarchy.EntityHierarchy dtHierarchy,
+                                                                                            Set<FlowDataType> population) {
+        Set<Long> possibleDtIds = population
+                .stream()
+                .map(FlowDataType::dtId)
+                .distinct()
+                .flatMap(dtId -> dtHierarchy.findAncestors(dtId).stream())
+                .collect(Collectors.toSet());
+        return findFlowClassificationRuleVantagePoints(direction, possibleDtIds);
+    }
+
+
+    private List<FlowClassificationRuleVantagePoint> findFlowClassificationRuleVantagePoints(Condition condition) {
+        SelectSeekStep6<Record11<Long, String, Integer, Long, Integer, Long, String, String, Long, String, String>, String, Integer, Integer, Long, Long, Long> select = dsl
+                .select(vantagePointId,
+                        FLOW_CLASSIFICATION_RULE.PARENT_KIND,
+                        vantagePointLevel,
+                        ehDataType.ID,
+                        dataTypeLevel,
                         FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_ID,
                         FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_KIND,
                         FLOW_CLASSIFICATION.CODE,
-                        FLOW_CLASSIFICATION_RULE.ID)
+                        FLOW_CLASSIFICATION_RULE.ID,
+                        FLOW_CLASSIFICATION_RULE.MESSAGE,
+                        FLOW_CLASSIFICATION_RULE.MESSAGE_SEVERITY)
                 .from(FLOW_CLASSIFICATION_RULE)
-                .innerJoin(ehOrgUnit)
+                .leftJoin(ehOrgUnit)
                 .on(ehOrgUnit.ANCESTOR_ID.eq(FLOW_CLASSIFICATION_RULE.PARENT_ID)
                         .and(ehOrgUnit.KIND.eq(EntityKind.ORG_UNIT.name()))
                         .and(ehOrgUnit.ID.eq(ehOrgUnit.ANCESTOR_ID)))
-                .innerJoin(org.finos.waltz.schema.tables.DataType.DATA_TYPE)
-                .on(org.finos.waltz.schema.tables.DataType.DATA_TYPE.ID.eq(FLOW_CLASSIFICATION_RULE.DATA_TYPE_ID))
-                .innerJoin(ehDataType)
-                .on(ehDataType.ANCESTOR_ID.eq(org.finos.waltz.schema.tables.DataType.DATA_TYPE.ID)
+                .leftJoin(ehDataType)
+                .on(ehDataType.ANCESTOR_ID.eq(FLOW_CLASSIFICATION_RULE.DATA_TYPE_ID)
                         .and(ehDataType.KIND.eq(EntityKind.DATA_TYPE.name()))
                         .and(ehDataType.ID.eq(ehDataType.ANCESTOR_ID)))
                 .innerJoin(FLOW_CLASSIFICATION).on(FLOW_CLASSIFICATION_RULE.FLOW_CLASSIFICATION_ID.eq(FLOW_CLASSIFICATION.ID))
+                .where(condition)
                 .orderBy(
-                        ehOrgUnit.LEVEL.desc(),
-                        ehDataType.LEVEL.desc(),
-                        ehOrgUnit.ID,
-                        ehDataType.ID
+                        FLOW_CLASSIFICATION_RULE.PARENT_KIND, //ACTOR, APPLICATION, ORG_UNIT
+                        vantagePointLevel.desc(),
+                        dataTypeLevel.desc(),
+                        vantagePointId,
+                        ehDataType.ID,
+                        FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_ID
                 );
+
         return select.fetch(TO_VANTAGE_MAPPER);
     }
 
@@ -464,22 +573,10 @@ public class FlowClassificationRuleDao {
 
     public Set<FlowClassificationRule> findClassificationRules(Condition customSelectionCriteria) {
 
-        SelectConditionStep<Record1<Long>> ruleSelectorBasedOnCustomSelectionForTargetApps = DSL
-                .select(FLOW_CLASSIFICATION_RULE.ID)
-                .from(FLOW_CLASSIFICATION_RULE)
-                .innerJoin(LOGICAL_FLOW)
-                .on(LOGICAL_FLOW.SOURCE_ENTITY_ID.eq(FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_ID)
-                        .and(LOGICAL_FLOW.SOURCE_ENTITY_KIND.eq(FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_KIND))
-                        .and(LOGICAL_FLOW.ENTITY_LIFECYCLE_STATUS.ne(REMOVED.name())
-                                .and(LOGICAL_FLOW.IS_REMOVED.isFalse())))
-                .innerJoin(CONSUMER_APP).on(LOGICAL_FLOW.TARGET_ENTITY_ID.eq(CONSUMER_APP.ID)
-                        .and(LOGICAL_FLOW.TARGET_ENTITY_KIND.eq(EntityKind.APPLICATION.name())))
+        SelectConditionStep<Record> qry = baseSelect()
                 .where(customSelectionCriteria);
 
-        Condition criteria = FLOW_CLASSIFICATION_RULE.ID.in(ruleSelectorBasedOnCustomSelectionForTargetApps);
-
-        return baseSelect()
-                .where(criteria)
+        return qry
                 .fetchSet(TO_DOMAIN_MAPPER);
     }
 
@@ -492,17 +589,20 @@ public class FlowClassificationRuleDao {
                 .select(SUBJECT_NAME_FIELD)
                 .select(ORGANISATIONAL_UNIT.ID, ORGANISATIONAL_UNIT.NAME)
                 .select(FLOW_CLASSIFICATION_RULE.fields())
-                .select(SUPPLIER_APP.NAME, SUPPLIER_APP.ID)
                 .from(FLOW_CLASSIFICATION_RULE)
-                .leftJoin(SUPPLIER_APP)
-                .on(SUPPLIER_APP.ID.eq(FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_ID)
+                .leftJoin(SUBJECT_APP)
+                .on(SUBJECT_APP.ID.eq(FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_ID)
                         .and(FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_KIND.eq(EntityKind.APPLICATION.name())))
+                .leftJoin(SUBJECT_EUDA)
+                .on(SUBJECT_EUDA.ID.eq(FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_ID)
+                        .and(FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_KIND.eq(EntityKind.END_USER_APPLICATION.name())))
                 .leftJoin(ORGANISATIONAL_UNIT)
-                .on(ORGANISATIONAL_UNIT.ID.eq(SUPPLIER_APP.ORGANISATIONAL_UNIT_ID));
+                .on(ORGANISATIONAL_UNIT.ID.eq(SUBJECT_APP.ORGANISATIONAL_UNIT_ID)
+                        .or(ORGANISATIONAL_UNIT.ID.eq(SUBJECT_EUDA.ORGANISATIONAL_UNIT_ID)));
     }
 
 
-    public int updatePointToPointFlowClassificationRules() {
+    public int updatePointToPointFlowClassificationRules(FlowDirection direction) {
 
         Condition logicalFlowTargetIsAuthSourceParent = FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_ID.eq(LOGICAL_FLOW.SOURCE_ENTITY_ID)
                 .and(LOGICAL_FLOW.SOURCE_ENTITY_KIND.eq(FLOW_CLASSIFICATION_RULE.SUBJECT_ENTITY_KIND)
@@ -527,7 +627,7 @@ public class FlowClassificationRuleDao {
                         .and(level.ID.eq(level.ANCESTOR_ID)
                         .and(level.KIND.eq(EntityKind.DATA_TYPE.name()))))
                 .innerJoin(FLOW_CLASSIFICATION).on(FLOW_CLASSIFICATION_RULE.FLOW_CLASSIFICATION_ID.eq(FLOW_CLASSIFICATION.ID))
-                .where(FLOW_CLASSIFICATION.CODE.ne(LOGICAL_FLOW_DECORATOR.RATING))
+                .where(FLOW_CLASSIFICATION.CODE.ne(LOGICAL_FLOW_DECORATOR.RATING).and(FLOW_CLASSIFICATION.DIRECTION.eq(direction.name())))
                 .orderBy(level.LEVEL)
                 .fetch()
                 .stream()
@@ -572,5 +672,22 @@ public class FlowClassificationRuleDao {
                 .where(FLOW_CLASSIFICATION_RULE.DATA_TYPE_ID.in(dataTypeIds)
                         .and(FLOW_CLASSIFICATION_RULE.ID.ne(ruleId)))
                 .fetchSet(TO_DOMAIN_MAPPER);
+    }
+
+
+    public Set<FlowClassificationRule> findAppliedClassificationRulesForFlow(Long logicalFlowId) {
+        SelectConditionStep<Record> outboundRules = baseSelect()
+                .innerJoin(LOGICAL_FLOW_DECORATOR).on(LOGICAL_FLOW_DECORATOR.FLOW_CLASSIFICATION_RULE_ID.eq(FLOW_CLASSIFICATION_RULE.ID))
+                .where(LOGICAL_FLOW_DECORATOR.LOGICAL_FLOW_ID.eq(logicalFlowId));
+        SelectConditionStep<Record> inboundRules = baseSelect()
+                .innerJoin(LOGICAL_FLOW_DECORATOR).on(LOGICAL_FLOW_DECORATOR.INBOUND_FLOW_CLASSIFICATION_RULE_ID.eq(FLOW_CLASSIFICATION_RULE.ID))
+                .where(LOGICAL_FLOW_DECORATOR.LOGICAL_FLOW_ID.eq(logicalFlowId));
+        return outboundRules
+                .union(inboundRules)
+                .fetchSet(TO_DOMAIN_MAPPER);
+    }
+
+    public int updateDecoratorsWithClassifications(Set<UpdateConditionStep<LogicalFlowDecoratorRecord>> updateStmts) {
+        return IntStream.of(dsl.batch(updateStmts).execute()).sum();
     }
 }

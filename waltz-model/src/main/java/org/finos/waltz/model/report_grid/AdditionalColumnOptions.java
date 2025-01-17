@@ -15,7 +15,13 @@ public enum AdditionalColumnOptions {
     NONE(),
     PICK_HIGHEST(asSet(EntityKind.MEASURABLE)),
     PICK_LOWEST(asSet(EntityKind.MEASURABLE)),
-    ROLLUP(asSet(EntityKind.DATA_TYPE));
+    ROLLUP(asSet(EntityKind.DATA_TYPE)),
+    COMPLETED_AND_APPROVED_ONLY(asSet(EntityKind.SURVEY_INSTANCE, EntityKind.SURVEY_QUESTION)),
+    EXCLUDE_WITHDRAWN(asSet(EntityKind.SURVEY_INSTANCE, EntityKind.SURVEY_QUESTION)),
+    PRIMARY(asSet(EntityKind.MEASURABLE)),
+    VALUES_ONLY(asSet(EntityKind.ENTITY_STATISTIC)),
+    VALUES_AND_OUTCOMES(asSet(EntityKind.ENTITY_STATISTIC));
+
 
     private final Set<EntityKind> allowedKinds;
 

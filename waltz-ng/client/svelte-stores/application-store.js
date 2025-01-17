@@ -29,15 +29,25 @@ export function mkApplicationStore() {
     const registerApp = (data) => remote
         .execute("POST", `api/app`, data);
 
-    const findBySelector = (selector) => {
-        return remote.fetchViewList("POST", "api/app/selector", selector);
-    };
+    const findBySelector = (selector) => remote
+        .fetchViewList("POST", "api/app/selector", selector);
+
+    const getViewBySelector = (selector) => remote
+        .fetchViewDatum("POST", "api/app/view/selector", selector);
+
+
+    const findByExternalId = (extId) => remote
+        .fetchViewList("GET", `api/app/external-id/${extId}`, null );
+
+
 
     return {
         getById,
         update,
         registerApp,
-        findBySelector
+        findByExternalId,
+        findBySelector,
+        getViewBySelector
     };
 }
 

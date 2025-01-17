@@ -21,11 +21,23 @@ package org.finos.waltz.data.involvement_kind;
 import org.finos.waltz.common.DateTimeUtilities;
 import org.finos.waltz.model.EntityKind;
 import org.finos.waltz.model.UserTimestamp;
-import org.finos.waltz.model.involvement_kind.*;
+import org.finos.waltz.model.involvement_kind.ImmutableInvolvementKind;
+import org.finos.waltz.model.involvement_kind.ImmutableInvolvementKindUsageStat;
+import org.finos.waltz.model.involvement_kind.ImmutableStat;
+import org.finos.waltz.model.involvement_kind.InvolvementKind;
+import org.finos.waltz.model.involvement_kind.InvolvementKindChangeCommand;
+import org.finos.waltz.model.involvement_kind.InvolvementKindCreateCommand;
+import org.finos.waltz.model.involvement_kind.InvolvementKindUsageStat;
 import org.finos.waltz.schema.tables.Involvement;
 import org.finos.waltz.schema.tables.Person;
 import org.finos.waltz.schema.tables.records.InvolvementKindRecord;
-import org.jooq.*;
+import org.jooq.CommonTableExpression;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record;
+import org.jooq.Record4;
+import org.jooq.RecordMapper;
+import org.jooq.SelectHavingStep;
 import org.jooq.exception.NoDataFoundException;
 import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,7 +50,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
-import static java.util.stream.Collectors.*;
+import static java.util.stream.Collectors.groupingBy;
+import static java.util.stream.Collectors.mapping;
+import static java.util.stream.Collectors.toSet;
 import static org.finos.waltz.common.Checks.checkNotNull;
 import static org.finos.waltz.common.Checks.checkOptionalIsPresent;
 import static org.finos.waltz.common.SetUtilities.filter;
@@ -65,6 +79,9 @@ public class InvolvementKindDao {
                 .lastUpdatedAt(DateTimeUtilities.toLocalDateTime(record.getLastUpdatedAt()))
                 .lastUpdatedBy(record.getLastUpdatedBy())
                 .userSelectable(record.getUserSelectable())
+                .subjectKind(EntityKind.valueOf(record.getSubjectKind()))
+                .permittedRole(record.getPermittedRole())
+                .transitive(record.getTransitive())
                 .build();
     };
 
@@ -77,6 +94,9 @@ public class InvolvementKindDao {
         record.setLastUpdatedAt(Timestamp.valueOf(ik.lastUpdatedAt()));
         record.setLastUpdatedBy(ik.lastUpdatedBy());
         record.setUserSelectable(ik.userSelectable());
+        record.setSubjectKind(ik.subjectKind().name());
+        record.setPermittedRole(ik.permittedRole());
+        record.setTransitive(ik.transitive());
 
         ik.externalId().ifPresent(record::setExternalId);
         ik.id().ifPresent(record::setId);
@@ -105,17 +125,11 @@ public class InvolvementKindDao {
 
 
     public InvolvementKind getById(long id) {
-        InvolvementKindRecord record = dsl
+        return dsl
                 .select(INVOLVEMENT_KIND.fields())
                 .from(INVOLVEMENT_KIND)
                 .where(INVOLVEMENT_KIND.ID.eq(id))
-                .fetchOneInto(InvolvementKindRecord.class);
-
-        if(record == null) {
-            throw new NoDataFoundException("Could not find Involvement Kind record with id: " + id);
-        }
-
-        return TO_DOMAIN_MAPPER.map(record);
+                .fetchOne(TO_DOMAIN_MAPPER);
     }
 
 
@@ -127,6 +141,8 @@ public class InvolvementKindDao {
         record.setDescription(command.description());
         record.setLastUpdatedBy(username);
         record.setLastUpdatedAt(Timestamp.valueOf(DateTimeUtilities.nowUtc()));
+        record.setSubjectKind(command.subjectKind().name());
+        record.setPermittedRole(command.permittedRole());
 
         command.externalId().ifPresent(record::setExternalId);
 
@@ -159,6 +175,8 @@ public class InvolvementKindDao {
         command.description().ifPresent(change -> record.setDescription(change.newVal()));
         command.externalId().ifPresent(change -> record.setExternalId(change.newVal()));
         command.userSelectable().ifPresent(change -> record.setUserSelectable(change.newVal()));
+        command.permittedRole().ifPresent(change -> record.setPermittedRole(change.newVal()));
+        command.transitive().ifPresent(change -> record.setTransitive(change.newVal()));
 
         UserTimestamp lastUpdate = command.lastUpdate().orElseThrow(() -> new IllegalStateException("InvolvementChangeCommand must have a last update timestamp"));
         record.setLastUpdatedAt(Timestamp.valueOf(lastUpdate.at()));
@@ -201,11 +219,8 @@ public class InvolvementKindDao {
 
         return dsl
                 .with(userStatsCTE)
-                .select(ik.ID,
-                        ik.NAME,
-                        ik.EXTERNAL_ID,
-                        ik.DESCRIPTION,
-                        entityKindField,
+                .select(ik.fields())
+                .select(entityKindField,
                         personIsRemovedField,
                         personCountField)
                 .from(ik)
@@ -213,12 +228,7 @@ public class InvolvementKindDao {
                 .fetch()
                 .stream()
                 .collect(groupingBy(
-                        r -> mkRef(
-                                EntityKind.INVOLVEMENT_KIND,
-                                r.get(ik.ID),
-                                r.get(ik.NAME),
-                                r.get(ik.DESCRIPTION),
-                                r.get(ik.EXTERNAL_ID)),
+                        InvolvementKindDao.TO_DOMAIN_MAPPER::map,
                         mapping(
                                 r -> r.get(entityKindField) == null
                                         ? null
@@ -252,6 +262,12 @@ public class InvolvementKindDao {
         Involvement inv = INVOLVEMENT;
         Person p = PERSON;
 
+        InvolvementKind involvementKind = dsl
+                .select(ik.fields())
+                .from(ik)
+                .where(ik.ID.eq(kindId))
+                .fetchOne(InvolvementKindDao.TO_DOMAIN_MAPPER);
+
         SelectHavingStep<Record4<Long, String, Boolean, Integer>> qry = dsl
                 .select(ik.ID, inv.ENTITY_KIND, p.IS_REMOVED, DSL.countDistinct(inv.EMPLOYEE_ID).as("person_count"))
                 .from(inv)
@@ -270,16 +286,16 @@ public class InvolvementKindDao {
                             ? null
                             : ImmutableStat
                             .builder()
-                            .entityKind(EntityKind.valueOf(entityKind))
-                            .isCountOfRemovedPeople(r.get(p.IS_REMOVED))
-                            .personCount(r.get("person_count", Integer.class))
-                            .build();
+                                .entityKind(EntityKind.valueOf(entityKind))
+                                .isCountOfRemovedPeople(r.get(p.IS_REMOVED))
+                                .personCount(r.get("person_count", Integer.class))
+                                .build();
                 })
                 .filter(Objects::nonNull)
                 .collect(toSet());
 
         return ImmutableInvolvementKindUsageStat.builder()
-                .involvementKind(mkRef(EntityKind.INVOLVEMENT_KIND, kindId))
+                .involvementKind(involvementKind)
                 .breakdown(statsForKind)
                 .build();
     }

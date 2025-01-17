@@ -6,10 +6,22 @@ import org.finos.waltz.data.application.ApplicationIdSelectorFactory;
 import org.finos.waltz.model.AxisOrientation;
 import org.finos.waltz.model.EntityKind;
 import org.finos.waltz.model.IdSelectionOptions;
-import org.finos.waltz.schema.tables.*;
+import org.finos.waltz.schema.tables.MeasurableCategory;
+import org.finos.waltz.schema.tables.MeasurableRating;
+import org.finos.waltz.schema.tables.MeasurableRatingPlannedDecommission;
+import org.finos.waltz.schema.tables.MeasurableRatingReplacement;
+import org.finos.waltz.schema.tables.Roadmap;
+import org.finos.waltz.schema.tables.Scenario;
+import org.finos.waltz.schema.tables.ScenarioAxisItem;
+import org.finos.waltz.schema.tables.ScenarioRatingItem;
 import org.finos.waltz.schema.tables.records.ScenarioRatingItemRecord;
 import org.finos.waltz.service.DIConfiguration;
-import org.jooq.*;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record;
+import org.jooq.Record1;
+import org.jooq.Select;
+import org.jooq.SelectConditionStep;
 import org.jooq.impl.DSL;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
@@ -101,10 +113,7 @@ public class ScenarioPopulator {
                         .on(rai.SCENARIO_ID.eq(s.ID))
                         .and(rai.ORIENTATION.eq(AxisOrientation.ROW.name()))
                     .innerJoin(mr).on(mr.MEASURABLE_ID.eq(rai.DOMAIN_ITEM_ID))
-                    .leftJoin(pd)
-                        .on(pd.ENTITY_ID.eq(mr.ENTITY_ID))
-                        .and(pd.ENTITY_KIND.eq(mr.ENTITY_KIND))
-                        .and(mr.MEASURABLE_ID.eq(pd.MEASURABLE_ID))
+                    .leftJoin(pd).on(pd.ID.eq(mr.ID))
                     .leftJoin(repl).on(pd.ID.eq(repl.DECOMMISSION_ID))
                     .where(road.ID.eq(roadmapId))
                     .and(mr.ENTITY_ID.in(appSelector))

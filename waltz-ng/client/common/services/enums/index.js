@@ -39,6 +39,7 @@ import { investmentRating } from "./investment-rating";
 import { issuance } from "./issuance";
 import { lifecyclePhase } from "./lifecycle-phase";
 import { lifecycleStatus } from "./lifecycle-status";
+import { messageSeverity } from "./message-severity";
 import { usageKind } from "./usage-kind";
 import { orgUnitKind } from "./org-unit-kind";
 import { participantKind } from "./participation-kind";
@@ -52,6 +53,7 @@ import { surveyQuestionFieldType } from "./survey-question-field-type";
 import { surveyRunStatus } from "./survey-run-status";
 import { fieldDataType } from "./field-data-type";
 import { physicalSpecDefinitionType } from "./physical-spec-definition-type";
+import { taxonomyChangeType } from "./taxonomy-change-type";
 
 export const capabilityRating = investmentRating;
 
@@ -73,6 +75,7 @@ export const enums = {
     lifecyclePhase,
     orgUnitKind,
     severity,
+    messageSeverity,
     entity,
     changeInitiative,
     entityStatistic,
@@ -93,7 +96,8 @@ export const enums = {
     releaseLifecycleStatus,
     surveyRunStatus,
     surveyQuestionFieldType,
-    issuance
+    issuance,
+    taxonomyChangeType
 };
 
 

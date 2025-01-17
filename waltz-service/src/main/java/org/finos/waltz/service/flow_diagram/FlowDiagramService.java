@@ -18,6 +18,8 @@
 
 package org.finos.waltz.service.flow_diagram;
 
+import org.finos.waltz.data.end_user_app.EndUserAppDao;
+import org.finos.waltz.model.enduserapp.EndUserApplication;
 import org.finos.waltz.service.changelog.ChangeLogService;
 import org.finos.waltz.service.data_type.DataTypeService;
 import org.finos.waltz.common.DateTimeUtilities;
@@ -86,6 +88,7 @@ public class FlowDiagramService {
     private final PhysicalFlowDao physicalFlowDao;
     private final PhysicalSpecificationDao physicalSpecificationDao;
     private final ActorDao actorDao;
+    private final EndUserAppDao endUserAppDao;
     private final Random rnd = RandomUtilities.getRandom();
     private final FlowDiagramIdSelectorFactory flowDiagramIdSelectorFactory = new FlowDiagramIdSelectorFactory();
     private final LogicalFlowIdSelectorFactory logicalFlowIdSelectorFactory = new LogicalFlowIdSelectorFactory();
@@ -105,6 +108,7 @@ public class FlowDiagramService {
                               PhysicalFlowDao physicalFlowDao,
                               PhysicalSpecificationDao physicalSpecificationDao,
                               ActorDao actorDao,
+                              EndUserAppDao endUserAppDao,
                               MeasurableDao measurableDao,
                               ChangeInitiativeDao changeInitiativeDao) {
         checkNotNull(changeLogService, "changeLogService cannot be null");
@@ -118,6 +122,7 @@ public class FlowDiagramService {
         checkNotNull(physicalFlowDao, "physicalFlowDao cannot be null");
         checkNotNull(physicalSpecificationDao, "physicalSpecificationDao cannot be null");
         checkNotNull(actorDao, "actorDao cannot be null");
+        checkNotNull(endUserAppDao, "endUserAppDao cannot be null");
         checkNotNull(measurableDao, "measurableDao cannot be null");
         checkNotNull(changeInitiativeDao, "changeInitiativeDao cannot be null");
 
@@ -133,6 +138,7 @@ public class FlowDiagramService {
         this.physicalFlowDao = physicalFlowDao;
         this.physicalSpecificationDao = physicalSpecificationDao;
         this.actorDao = actorDao;
+        this.endUserAppDao = endUserAppDao;
         this.measurableDao = measurableDao;
         this.changeInitiativeDao = changeInitiativeDao;
     }
@@ -289,6 +295,7 @@ public class FlowDiagramService {
                                 "Added entity to diagram: %s",
                                 ref))
                         .childKind(ref.kind())
+                        .childId(ref.id())
                         .operation(Operation.ADD)
                         .build())
                 .collect(toList());
@@ -306,6 +313,7 @@ public class FlowDiagramService {
                                 "Removed entity from diagram: %s",
                                 ref))
                         .childKind(ref.kind())
+                        .childId(ref.id())
                         .operation(Operation.REMOVE)
                         .build())
                 .collect(toList());
@@ -322,6 +330,8 @@ public class FlowDiagramService {
                 return makeForApplication(ref, userId, title);
             case ACTOR:
                 return makeForActor(ref, userId, title);
+            case END_USER_APPLICATION:
+                return makeForEndUserApplication(ref, userId, title);
             case LOGICAL_DATA_FLOW:
                 return makeForLogicalFlow(ref, userId, title);
             case PHYSICAL_FLOW:
@@ -338,6 +348,25 @@ public class FlowDiagramService {
                 throw new UnsupportedOperationException("Cannot make diagram for entity: "+ref);
         }
     }
+
+
+    private Long makeForEndUserApplication(EntityReference ref,
+                                           String userId,
+                                           String providedTitle) {
+
+        EndUserApplication endUserApp = endUserAppDao.getById(ref.id());
+
+        String title = isEmpty(providedTitle)
+                ? endUserApp.name() + " flows"
+                : providedTitle;
+
+        ArrayList<FlowDiagramEntity> entities = newArrayList(mkDiagramEntity(endUserApp));
+        ArrayList<FlowDiagramAnnotation> annotations = newArrayList(mkDiagramAnnotation(endUserApp.entityReference(), title));
+
+        return mkNewFlowDiagram(title, userId, entities, annotations);
+
+    }
+
 
     private Long makeForLogicalFlow(EntityReference ref, String userId, String providedTitle) {
         LogicalFlow logicalFlow = logicalFlowDao.getByFlowId(ref.id());
@@ -466,7 +495,8 @@ public class FlowDiagramService {
         String entityPositionTemplate = "\"%s/%s\": { \"x\": %d, \"y\": %d }";
         Set<EntityKind> positionableEntityKinds = SetUtilities.fromArray(
                 EntityKind.APPLICATION,
-                EntityKind.ACTOR);
+                EntityKind.ACTOR,
+                EntityKind.END_USER_APPLICATION);
 
         Stream<String> entityPositions = entities
                 .stream()

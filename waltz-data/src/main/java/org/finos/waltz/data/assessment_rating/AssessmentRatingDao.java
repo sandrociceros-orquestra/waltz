@@ -23,13 +23,37 @@ import org.finos.waltz.common.DateTimeUtilities;
 import org.finos.waltz.common.SetUtilities;
 import org.finos.waltz.data.GenericSelector;
 import org.finos.waltz.data.InlineSelectFieldFactory;
-import org.finos.waltz.model.*;
+import org.finos.waltz.model.EntityKind;
+import org.finos.waltz.model.EntityLifecycleStatus;
+import org.finos.waltz.model.EntityReference;
+import org.finos.waltz.model.ImmutableEntityReference;
+import org.finos.waltz.model.Operation;
 import org.finos.waltz.model.assessment_rating.AssessmentRating;
-import org.finos.waltz.model.assessment_rating.*;
+import org.finos.waltz.model.assessment_rating.AssessmentRatingOperations;
+import org.finos.waltz.model.assessment_rating.AssessmentRatingSummaryCounts;
+import org.finos.waltz.model.assessment_rating.ImmutableAssessmentRating;
+import org.finos.waltz.model.assessment_rating.ImmutableAssessmentRatingOperations;
+import org.finos.waltz.model.assessment_rating.ImmutableAssessmentRatingSummaryCounts;
+import org.finos.waltz.model.assessment_rating.ImmutableRatingEntityList;
+import org.finos.waltz.model.assessment_rating.RemoveAssessmentRatingCommand;
+import org.finos.waltz.model.assessment_rating.SaveAssessmentRatingCommand;
+import org.finos.waltz.model.assessment_rating.UpdateRatingCommand;
 import org.finos.waltz.model.tally.ImmutableTally;
-import org.finos.waltz.schema.tables.*;
+import org.finos.waltz.schema.tables.AssessmentDefinition;
+import org.finos.waltz.schema.tables.RatingSchemeItem;
 import org.finos.waltz.schema.tables.records.AssessmentRatingRecord;
-import org.jooq.*;
+import org.jooq.AggregateFunction;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.DeleteConditionStep;
+import org.jooq.Field;
+import org.jooq.Record;
+import org.jooq.Record5;
+import org.jooq.RecordMapper;
+import org.jooq.RecordUnmapper;
+import org.jooq.Result;
+import org.jooq.SelectConditionStep;
+import org.jooq.UpdateConditionStep;
 import org.jooq.impl.DSL;
 import org.jooq.lambda.tuple.Tuple2;
 import org.jooq.lambda.tuple.Tuple5;
@@ -37,7 +61,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
 import java.sql.Timestamp;
-import java.util.*;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 
 import static java.util.Collections.emptySet;
@@ -46,12 +74,18 @@ import static java.util.stream.Collectors.toSet;
 import static org.finos.waltz.common.Checks.checkNotNull;
 import static org.finos.waltz.common.CollectionUtilities.isEmpty;
 import static org.finos.waltz.common.DateTimeUtilities.toLocalDateTime;
-import static org.finos.waltz.common.ListUtilities.newArrayList;
 import static org.finos.waltz.common.MapUtilities.groupBy;
-import static org.finos.waltz.common.SetUtilities.*;
-import static org.finos.waltz.common.StringUtilities.*;
+import static org.finos.waltz.common.SetUtilities.asSet;
+import static org.finos.waltz.common.SetUtilities.intersection;
+import static org.finos.waltz.common.SetUtilities.map;
+import static org.finos.waltz.common.SetUtilities.maybeAdd;
+import static org.finos.waltz.common.SetUtilities.union;
+import static org.finos.waltz.common.StringUtilities.mkSafe;
+import static org.finos.waltz.common.StringUtilities.notEmpty;
+import static org.finos.waltz.common.StringUtilities.sanitizeCharacters;
 import static org.finos.waltz.model.EntityReference.mkRef;
-import static org.finos.waltz.schema.Tables.*;
+import static org.finos.waltz.schema.Tables.RATING_SCHEME_ITEM;
+import static org.finos.waltz.schema.Tables.USER_ROLE;
 import static org.finos.waltz.schema.tables.AssessmentDefinition.ASSESSMENT_DEFINITION;
 import static org.finos.waltz.schema.tables.AssessmentRating.ASSESSMENT_RATING;
 import static org.jooq.lambda.tuple.Tuple.tuple;
@@ -61,29 +95,21 @@ public class AssessmentRatingDao {
 
     private static final org.finos.waltz.schema.tables.AssessmentRating ar = ASSESSMENT_RATING;
     private static final AssessmentDefinition ad = ASSESSMENT_DEFINITION;
-    private static final Person p = PERSON;
-    private static final PermissionGroupInvolvement pgi = PERMISSION_GROUP_INVOLVEMENT;
-    private static final Involvement inv = INVOLVEMENT;
-    private static final InvolvementGroupEntry ige = INVOLVEMENT_GROUP_ENTRY;
-    private static final UserRole ur = USER_ROLE;
     private static final RatingSchemeItem rsi = RATING_SCHEME_ITEM;
 
-    private static boolean DEFAULT_RATING_READ_ONLY_VALUE = false;
+    private static final boolean DEFAULT_RATING_READ_ONLY_VALUE = false;
 
     private static final Field<String> ENTITY_NAME_FIELD = InlineSelectFieldFactory.mkNameField(
             ar.ENTITY_ID,
-            ar.ENTITY_KIND,
-            newArrayList(EntityKind.values())).as("entity_name");
+            ar.ENTITY_KIND).as("entity_name");
 
     private static final Field<String> ENTITY_LIFECYCLE_FIELD = InlineSelectFieldFactory.mkEntityLifecycleField(
             ar.ENTITY_ID,
-            ar.ENTITY_KIND,
-            newArrayList(EntityKind.values())).as("entity_lifecycle_status");
+            ar.ENTITY_KIND).as("entity_lifecycle_status");
 
     private static final Field<String> ENTITY_EXTID_FIELD = InlineSelectFieldFactory.mkExternalIdField(
             ar.ENTITY_ID,
-            ar.ENTITY_KIND,
-            newArrayList(EntityKind.values())).as("entity_external_id");
+            ar.ENTITY_KIND).as("entity_external_id");
 
     private static final RecordMapper<? super Record, AssessmentRating> TO_DOMAIN_MAPPER = r -> {
         AssessmentRatingRecord record = r.into(ar);
@@ -228,22 +254,35 @@ public class AssessmentRatingDao {
     }
 
 
+    public int deleteByGenericSelector(GenericSelector genericSelector) {
+        return dsl
+                .deleteFrom(ar)
+                .where(ar.ENTITY_KIND.eq(genericSelector.kind().name()))
+                .and(ar.ENTITY_ID.in(genericSelector.selector()))
+                .execute();
+    }
+
+
     public boolean store(SaveAssessmentRatingCommand command) {
         checkNotNull(command, "command cannot be null");
         AssessmentRatingRecord record = COMMAND_TO_RECORD_MAPPER.apply(command);
+
+        return isUpdate(command)
+                ? dsl.executeUpdate(record) == 1
+                : dsl.executeInsert(record) == 1;
+    }
+
+
+    public boolean isUpdate(SaveAssessmentRatingCommand command) {
         EntityReference ref = command.entityReference();
 
-        boolean isUpdate = dsl.fetchExists(dsl
+        return dsl.fetchExists(dsl
                 .select(ar.ID)
                 .from(ar)
                 .where(ar.ENTITY_KIND.eq(ref.kind().name()))
                 .and(ar.ENTITY_ID.eq(ref.id()))
                 .and(ar.ASSESSMENT_DEFINITION_ID.eq(command.assessmentDefinitionId()))
                 .and(ar.RATING_ID.eq(command.ratingId())));
-
-        return isUpdate
-                ? dsl.executeUpdate(record) == 1
-                : dsl.executeInsert(record) == 1;
     }
 
 
@@ -532,5 +571,29 @@ public class AssessmentRatingDao {
                             .build();
                 })
                 .collect(toSet());
+    }
+
+    public boolean hasMultiValuedAssessments(long assessmentDefinitionId) {
+        AggregateFunction<Integer> ratingCount = DSL.count(ar.RATING_ID);
+        return dsl
+                .select(ar.ENTITY_ID, ratingCount)
+                .from(ar)
+                .where(ar.ASSESSMENT_DEFINITION_ID.eq(assessmentDefinitionId))
+                .groupBy(ar.ENTITY_ID)
+                .having(ratingCount.gt(1))
+                .fetch()
+                .isNotEmpty();
+    }
+
+
+    public Set<AssessmentRating> findBySelectorForDefinitions(GenericSelector genericSelector,
+                                                              Set<Long> defIds) {
+        return dsl
+                .select(ar.fields())
+                .from(ar)
+                .where(ar.ENTITY_KIND.eq(genericSelector.kind().name())
+                        .and(ar.ENTITY_ID.in(genericSelector.selector()))
+                        .and(ar.ASSESSMENT_DEFINITION_ID.in(defIds)))
+                .fetchSet(TO_DOMAIN_MAPPER);
     }
 }

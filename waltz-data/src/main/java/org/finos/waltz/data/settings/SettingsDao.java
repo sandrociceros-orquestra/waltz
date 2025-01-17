@@ -91,9 +91,21 @@ public class SettingsDao {
         return dsl
                 .update(SETTINGS)
                 .set(SETTINGS.VALUE, cmd.value())
+                .set(SETTINGS.DESCRIPTION, cmd.description())
                 .where(SETTINGS.NAME.eq(cmd.name()))
                 .and(SETTINGS.RESTRICTED.isFalse())
                 .execute();
 
+    }
+
+    public int create(Setting setting) {
+        SettingsRecord record = dsl.newRecord(SETTINGS);
+        record.setName(setting.name());
+        record.setDescription(setting.description());
+        record.setRestricted(setting.restricted());
+
+        setting.value().ifPresent(record::setValue);
+
+        return record.store();
     }
 }

@@ -21,21 +21,52 @@ import {remote} from "./remote";
 export function mkDataTypeStore() {
 
     const findAll = (force= false) => {
-        return remote.fetchViewList("GET", "api/data-types", null, {force})
-    }
+        return remote.fetchAppList(
+            "GET",
+            "api/data-types",
+            null,
+            {force});
+    };
 
     const getById = (id, force = false) => {
-        return remote.fetchViewData(
+        return remote.fetchAppData(
             "GET",
             `api/data-types/id/${id}`,
             null,
             {},
             {force})
-    }
+    };
+
+    const findByParentId = (id, force = false) => {
+        return remote.fetchAppData(
+            "GET",
+            `api/data-types/parent-id/${id}`,
+            null,
+            {},
+            {force})
+    };
+
+    const findSuggestedByRef = (ref, force = false) => {
+        return remote.fetchViewList(
+            "GET",
+            `api/data-types/suggested/entity/${ref.kind}/${ref.id}`,
+            null,
+            {force});
+    };
+
+    const migrate = (sourceDataTypeId, targetDataTypeId, removeSource = false) => {
+        return remote.execute(
+            "POST",
+            `api/data-types/migrate/${sourceDataTypeId}/to/${targetDataTypeId}?removeSource=${removeSource}`,
+            null);
+    };
 
     return {
         findAll,
-        getById
+        getById,
+        findByParentId,
+        findSuggestedByRef,
+        migrate
     };
 }
 

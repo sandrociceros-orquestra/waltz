@@ -20,9 +20,11 @@ package org.finos.waltz.model;
 
 public enum EntityKind {
 
+    ALL("All"), // when used in an entity ref the id will be ignored
     ACTOR("Actor"),
     AGGREGATE_OVERLAY_DIAGRAM("Aggregate Overlay Diagram"),
     AGGREGATE_OVERLAY_DIAGRAM_INSTANCE("Aggregate Overlay Diagram Instance"),
+    ALLOCATION("Allocation"),
     ALLOCATION_SCHEME("Allocation scheme"),
     APPLICATION("Application"),
     APP_GROUP("Application group"),
@@ -58,13 +60,15 @@ public enum EntityKind {
     FLOW_CLASSIFICATION("Flow classification"),
     FLOW_DIAGRAM("Flow diagram"),
     INVOLVEMENT("Involvement"),
+    INVOLVEMENT_GROUP("Involvement Group"),
     INVOLVEMENT_KIND("Involvement kind"),
     LICENCE("Licence"),
     LEGAL_ENTITY("Legal Entity"),
     LEGAL_ENTITY_RELATIONSHIP("Legal Entity Relationship"),
     LEGAL_ENTITY_RELATIONSHIP_KIND("Legal Entity Relationship Kind"),
-    LOGICAL_DATA_ELEMENT("Logical data element"),
-    LOGICAL_DATA_FLOW("Logical flow"),
+    LOGICAL_DATA_ELEMENT("Logical Data Element"),
+    LOGICAL_DATA_FLOW("Logical Flow"),
+    LOGICAL_DATA_FLOW_DATA_TYPE_DECORATOR("Logical Flow Datatype Decorator"),
     MEASURABLE("Measurable"),
     MEASURABLE_CATEGORY("Measurable category"),
     MEASURABLE_RATING("Measurable rating"),
@@ -72,8 +76,10 @@ public enum EntityKind {
     MEASURABLE_RATING_REPLACEMENT("Measurable rating replacement"),
     ORG_UNIT("Organisational unit"),
     PERFORMANCE_METRIC_PACK("Performance metric pack"),
+    PERMISSION_GROUP("Permission Group"),
     PERSON("Person"),
     PHYSICAL_SPECIFICATION("Physical specification"),
+    PHYSICAL_SPEC_DATA_TYPE_DECORATOR("Physical specification data type decorator"),
     PHYSICAL_SPEC_DEFN("Physical spec definition"),
     PHYSICAL_SPEC_DEFN_FIELD("Physical spec definition field"),
     PHYSICAL_FLOW("Physical flow"),
@@ -103,7 +109,7 @@ public enum EntityKind {
     CAPABILITY("Capability"),  // TO BE REMOVED IN 1.5
 
     @Deprecated
-    AUTHORITATIVE_SOURCE("Authoritative source");  // TO BE REMOVED IN 1.36
+    AUTHORITATIVE_SOURCE("Authoritative source"); // TO BE REMOVED IN 1.36
 
 
     private final String prettyName;

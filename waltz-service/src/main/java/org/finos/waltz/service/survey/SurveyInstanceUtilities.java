@@ -25,11 +25,13 @@ public class SurveyInstanceUtilities {
             case BOOLEAN:
                 return resp.booleanResponse();
             case DROPDOWN_MULTI_SELECT:
+            case STRING_LIST:
                 return resp.listResponse();
             case APPLICATION:
             case PERSON:
                 return resp.entityResponse();
             case MEASURABLE_MULTI_SELECT:
+            case LEGAL_ENTITY:
                 return resp.entityListResponse();
             default:
                 return Optional.empty();

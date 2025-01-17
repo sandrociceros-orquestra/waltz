@@ -20,34 +20,69 @@ package org.finos.waltz.service.survey;
 
 
 import org.finos.waltz.common.DateTimeUtilities;
-import org.finos.waltz.common.SetUtilities;
 import org.finos.waltz.data.person.PersonDao;
-import org.finos.waltz.data.survey.*;
+import org.finos.waltz.data.survey.SurveyInstanceDao;
+import org.finos.waltz.data.survey.SurveyInstanceOwnerDao;
+import org.finos.waltz.data.survey.SurveyInstanceRecipientDao;
+import org.finos.waltz.data.survey.SurveyQuestionResponseDao;
+import org.finos.waltz.data.survey.SurveyRunDao;
+import org.finos.waltz.data.survey.SurveyTemplateDao;
 import org.finos.waltz.model.EntityKind;
 import org.finos.waltz.model.EntityReference;
 import org.finos.waltz.model.IdSelectionOptions;
 import org.finos.waltz.model.Operation;
+import org.finos.waltz.model.ReleaseLifecycleStatus;
 import org.finos.waltz.model.attestation.SyncRecipientsResponse;
 import org.finos.waltz.model.changelog.ImmutableChangeLog;
 import org.finos.waltz.model.person.Person;
-import org.finos.waltz.model.survey.*;
+import org.finos.waltz.model.survey.CopySurveyResponsesCommand;
+import org.finos.waltz.model.survey.ImmutableSurveyInstancePermissions;
+import org.finos.waltz.model.survey.ImmutableSurveyInstanceQuestionResponse;
+import org.finos.waltz.model.survey.ImmutableSurveyInstanceStatusChangeCommand;
+import org.finos.waltz.model.survey.SurveyInstance;
+import org.finos.waltz.model.survey.SurveyInstanceAction;
+import org.finos.waltz.model.survey.SurveyInstanceActionCompletionRequirement;
+import org.finos.waltz.model.survey.SurveyInstanceFormDetails;
+import org.finos.waltz.model.survey.SurveyInstanceOwnerCreateCommand;
+import org.finos.waltz.model.survey.SurveyInstancePermissions;
+import org.finos.waltz.model.survey.SurveyInstanceQuestionResponse;
+import org.finos.waltz.model.survey.SurveyInstanceRecipientCreateCommand;
+import org.finos.waltz.model.survey.SurveyInstanceStateMachine;
+import org.finos.waltz.model.survey.SurveyInstanceStatus;
+import org.finos.waltz.model.survey.SurveyInstanceStatusChangeCommand;
+import org.finos.waltz.model.survey.SurveyQuestion;
+import org.finos.waltz.model.survey.SurveyQuestionResponse;
+import org.finos.waltz.model.survey.SurveyRun;
+import org.finos.waltz.model.survey.SurveyTemplate;
 import org.finos.waltz.model.user.SystemRole;
 import org.finos.waltz.model.utils.IdUtilities;
 import org.finos.waltz.service.changelog.ChangeLogService;
 import org.finos.waltz.service.user.UserRoleService;
+import org.jooq.DSLContext;
 import org.jooq.Record1;
 import org.jooq.Select;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 
 import static java.lang.String.format;
 import static java.util.Collections.emptySet;
-import static org.finos.waltz.common.Checks.*;
+import static org.finos.waltz.common.Checks.checkNotNull;
+import static org.finos.waltz.common.Checks.checkTrue;
+import static org.finos.waltz.common.Checks.fail;
 import static org.finos.waltz.common.CollectionUtilities.find;
 import static org.finos.waltz.common.CollectionUtilities.isEmpty;
+import static org.finos.waltz.common.SetUtilities.asSet;
+import static org.finos.waltz.common.SetUtilities.map;
 import static org.finos.waltz.common.StringUtilities.isEmpty;
 import static org.finos.waltz.common.StringUtilities.joinUsing;
 import static org.finos.waltz.model.survey.SurveyInstanceStateMachineFactory.simple;
@@ -56,6 +91,7 @@ import static org.finos.waltz.model.utils.IdUtilities.indexByOptionalId;
 @Service
 public class SurveyInstanceService {
 
+    private static final Logger LOG = LoggerFactory.getLogger(SurveyInstanceService.class);
     private final ChangeLogService changeLogService;
     private final PersonDao personDao;
     private final SurveyInstanceDao surveyInstanceDao;
@@ -67,6 +103,7 @@ public class SurveyInstanceService {
     private final UserRoleService userRoleService;
     private final SurveyQuestionService surveyQuestionService;
     private final SurveyInstanceViewService instanceViewService;
+    private final SurveyTemplateDao surveyTemplateDao;
 
 
     @Autowired
@@ -79,7 +116,8 @@ public class SurveyInstanceService {
                                  SurveyRunDao surveyRunDao,
                                  UserRoleService userRoleService,
                                  SurveyInstanceViewService instanceViewService,
-                                 SurveyQuestionService surveyQuestionService) {
+                                 SurveyQuestionService surveyQuestionService,
+                                 SurveyTemplateDao surveyTemplateDao) {
 
         checkNotNull(changeLogService, "changeLogService cannot be null");
         checkNotNull(personDao, "personDao cannot be null");
@@ -91,6 +129,7 @@ public class SurveyInstanceService {
         checkNotNull(userRoleService, "userRoleService cannot be null");
         checkNotNull(instanceViewService, "instanceViewService cannot be null");
         checkNotNull(surveyQuestionService, "surveyQuestionService cannot be null");
+        checkNotNull(surveyTemplateDao, "surveyTemplateDao cannot be null");
 
         this.changeLogService = changeLogService;
         this.personDao = personDao;
@@ -102,6 +141,7 @@ public class SurveyInstanceService {
         this.userRoleService = userRoleService;
         this.instanceViewService = instanceViewService;
         this.surveyQuestionService = surveyQuestionService;
+        this.surveyTemplateDao = surveyTemplateDao;
     }
 
 
@@ -233,21 +273,39 @@ public class SurveyInstanceService {
     }
 
 
-    public SurveyInstanceStatus updateStatus(String userName, long instanceId, SurveyInstanceStatusChangeCommand command) {
+    /**
+     * Updates a survey instance using a StatusChangeCommand. If a DSLContext is provided it will use this otherwise will use the DSLContext within the DAO.
+     * @param tx optional DSLContext to use as part of a transaction
+     * @param userName the user to submit the status change
+     * @param instanceId the id of the survey being updated
+     * @param command the action details
+     * @return the updated survey instance
+     */
+    public SurveyInstanceStatus updateStatus(Optional<DSLContext> tx,
+                                             String userName,
+                                             long instanceId,
+                                             SurveyInstanceStatusChangeCommand command) {
+
         checkNotNull(command, "command cannot be null");
 
         SurveyInstance surveyInstance = surveyInstanceDao.getById(instanceId);
-        checkTrue(surveyInstance.originalInstanceId() == null, "You cannot change the status of Approved/Rejected surveys");
+        checkTrue(surveyInstance.originalInstanceId() == null, "You can only update the status of the most recent version of a survey");
 
         SurveyInstancePermissions permissions = getPermissions(userName, instanceId);
-        SurveyInstanceStatus newStatus = simple(surveyInstance.status()).process(command.action(), permissions, surveyInstance);
+
+        //This checks that the command is an allowable transition and that you have the required permissions
+        SurveyInstanceStatus newStatus = simple(surveyInstance.status())
+                .process(
+                        command.action(),
+                        permissions,
+                        surveyInstance);
 
         if (command.action().getCompletionRequirement() == SurveyInstanceActionCompletionRequirement.REQUIRE_FULL_COMPLETION) {
             // abort if missing any mandatory questions
             SurveyInstanceFormDetails formDetails = instanceViewService.getFormDetailsById(instanceId);
             if (! formDetails.missingMandatoryQuestionIds().isEmpty()) {
                 Map<Long, SurveyQuestion> questionsById = indexByOptionalId(formDetails.activeQuestions());
-                Set<SurveyQuestion> missingMandatoryQuestions = SetUtilities.map(formDetails.missingMandatoryQuestionIds(), questionsById::get);
+                Set<SurveyQuestion> missingMandatoryQuestions = map(formDetails.missingMandatoryQuestionIds(), questionsById::get);
                 fail("Some questions are missing, namely: %s", joinUsing(
                         missingMandatoryQuestions,
                         SurveyQuestion::questionText,
@@ -256,27 +314,35 @@ public class SurveyInstanceService {
         }
 
         int nbupdates = 0;
+
         switch (command.action()) {
             case APPROVING:
-                nbupdates = surveyInstanceDao.markApproved(instanceId, userName);
+                checkTrue(newStatus.equals(SurveyInstanceStatus.APPROVED), "The resolved new status for APPROVING should be 'APPROVED', resolved to: " + newStatus);
+                nbupdates = surveyInstanceDao.markApproved(tx, instanceId, userName);
+                break;
+            case SUBMITTING:
+                checkTrue(newStatus.equals(SurveyInstanceStatus.COMPLETED), "The resolved new status for SUBMITTING should be 'COMPLETED', resolved to: " + newStatus);
+                removeUnnecessaryResponses(tx, instanceId);
+                nbupdates = surveyInstanceDao.markSubmitted(tx, instanceId, userName);
                 break;
             case REOPENING:
+                checkTrue(newStatus.equals(SurveyInstanceStatus.IN_PROGRESS), "The resolved new status for REOPENING should be 'IN_PROGRESS', resolved to: " + newStatus);
                 // if survey is being sent back, store current responses as a version
-                long versionedInstanceId = surveyInstanceDao.createPreviousVersion(surveyInstance);
-                surveyQuestionResponseDao.cloneResponses(surveyInstance.id().get(), versionedInstanceId);
-                surveyInstanceDao.clearApproved(instanceId);
-                // intended drop thru'
+                long versionedInstanceId = surveyInstanceDao.createPreviousVersion(tx, surveyInstance);
+                surveyQuestionResponseDao.cloneResponses(tx, instanceId, versionedInstanceId);
+                nbupdates = surveyInstanceDao.reopenSurvey(
+                        tx,
+                        instanceId,
+                        command.newDueDate().orElse(surveyInstance.dueDate()),
+                        command.newApprovalDueDate().orElse(surveyInstance.approvalDueDate()));
+                break;
             default:
-                nbupdates = surveyInstanceDao.updateStatus(instanceId, newStatus);
+                nbupdates = surveyInstanceDao.updateStatus(tx, instanceId, newStatus);
         }
 
         if (nbupdates > 0) {
-            if (newStatus == SurveyInstanceStatus.COMPLETED) {
-                surveyInstanceDao.updateSubmitted(instanceId, userName);
-                removeUnnecessaryResponses(instanceId);
-            }
-
             changeLogService.write(
+                    tx,
                     ImmutableChangeLog.builder()
                             .operation(Operation.UPDATE)
                             .userId(userName)
@@ -290,7 +356,7 @@ public class SurveyInstanceService {
     }
 
 
-    protected int removeUnnecessaryResponses(long instanceId) {
+    protected int removeUnnecessaryResponses(Optional<DSLContext> tx, long instanceId) {
         List<SurveyQuestion> availableQuestions = surveyQuestionService.findForSurveyInstance(instanceId);
         List<SurveyInstanceQuestionResponse> questionResponses = surveyQuestionResponseDao.findForInstance(instanceId);
         Set<Long> availableQuestionIds = IdUtilities.toIds(availableQuestions);
@@ -303,7 +369,7 @@ public class SurveyInstanceService {
         }
 
         if (!toRemove.isEmpty()) {
-            return surveyQuestionResponseDao.deletePreviousResponse(toRemove);
+            return surveyQuestionResponseDao.deletePreviousResponse(tx, toRemove);
         } else {
             return 0;
         }
@@ -490,17 +556,33 @@ public class SurveyInstanceService {
 
 
     public SurveyInstancePermissions getPermissions(String userName, Long instanceId) {
+
         Person person = personDao.getActiveByUserEmail(userName);
+
         SurveyInstance instance = surveyInstanceDao.getById(instanceId);
         SurveyRun run = surveyRunDao.getById(instance.surveyRunId());
+        SurveyTemplate template = surveyTemplateDao.getById(run.surveyTemplateId());
 
-        boolean isAdmin = userRoleService.hasRole(userName, SystemRole.SURVEY_ADMIN);
-        boolean isParticipant = surveyInstanceRecipientDao.isPersonInstanceRecipient(person.id().get(), instanceId);
-        boolean isOwner = person.id()
+        boolean isAdmin = userRoleService
+                .hasAnyRole(
+                        userName,
+                        asSet(
+                                SystemRole.SURVEY_ADMIN.name(), // admin across all surveys
+                                SystemRole.ADMIN.name(),
+                                template.issuanceRole())); // admin for this template?
+
+        boolean isParticipant = person != null && person.id()
+                .map(pid -> surveyInstanceRecipientDao.isPersonInstanceRecipient(pid, instanceId))
+                .orElse(false);
+
+        boolean isOwner = person != null && person.id()
                 .map(pid -> surveyInstanceOwnerDao.isPersonInstanceOwner(pid, instanceId) || Objects.equals(run.ownerId(), pid))
                 .orElse(false);
-        boolean hasOwningRole = userRoleService.hasRole(person.email(), instance.owningRole());
+
+        boolean hasOwningRole = userRoleService.hasRole(userName, instance.owningRole());
+
         boolean isLatest = instance.originalInstanceId() == null;
+
         boolean editableStatus = instance.status() == SurveyInstanceStatus.NOT_STARTED || instance.status() == SurveyInstanceStatus.IN_PROGRESS;
 
         return ImmutableSurveyInstancePermissions.builder()
@@ -559,6 +641,7 @@ public class SurveyInstanceService {
                 .forEach(trgInstanceId -> {
 
                     updateStatus(
+                            Optional.empty(),
                             username,
                             trgInstanceId,
                             ImmutableSurveyInstanceStatusChangeCommand.builder()
@@ -590,5 +673,70 @@ public class SurveyInstanceService {
             return personDao
                     .findActivePeopleByUserRole(surveyInstance.owningRole());
         }
+    }
+
+    /**
+     * Attempts to withdraw all open surveys for this run. e.g. those that are 'NOT_STARTED' or 'IN_PROGRESS'
+     * @param runId the survey run the instances fall under
+     * @param username the user issuing the command
+     * @return the number of surveys withdrawn
+     */
+    public Integer withdrawOpenSurveysForRun(long runId, String username) {
+        return surveyInstanceDao
+                .findForSurveyRun(runId, SurveyInstanceStatus.NOT_STARTED, SurveyInstanceStatus.IN_PROGRESS)
+                .stream()
+                .map(instance -> {
+
+                    ImmutableSurveyInstanceStatusChangeCommand cmd = ImmutableSurveyInstanceStatusChangeCommand
+                            .builder()
+                            .action(SurveyInstanceAction.WITHDRAWING)
+                            .reason("Withdrawing all open surveys for this run")
+                            .build();
+
+                    try {
+                        SurveyInstanceStatus surveyInstanceStatus = updateStatus(Optional.empty(), username, instance.id().get(), cmd);
+                        return 1;
+                    } catch (IllegalArgumentException e) {
+                        LOG.error("Unable to mark survey instance {} as 'WITHDRAWN'. Error: {}", instance.id().get(), e);
+                        return 0;
+                    }
+
+                })
+                .mapToInt(d -> d)
+                .sum();
+    }
+
+    /**
+     * Attempts to withdraw all open surveys for this template. e.g. those that are 'NOT_STARTED' or 'IN_PROGRESS'
+     * @param templateId the template the instances fall under
+     * @param username the user issuing the command
+     * @return the number of surveys withdrawn
+     */
+    public Integer withdrawOpenSurveysForTemplate(long templateId, String username) {
+        SurveyTemplate template = surveyTemplateDao.getById(templateId);
+
+        checkTrue(template.status().equals(ReleaseLifecycleStatus.OBSOLETE), "Instances can only be withdrawn for obsolete templates");
+
+        return  surveyInstanceDao.findForSurveyTemplate(templateId, SurveyInstanceStatus.NOT_STARTED, SurveyInstanceStatus.IN_PROGRESS)
+                .stream()
+                .map(instance -> {
+
+                    ImmutableSurveyInstanceStatusChangeCommand cmd = ImmutableSurveyInstanceStatusChangeCommand
+                            .builder()
+                            .action(SurveyInstanceAction.WITHDRAWING)
+                            .reason("Withdrawing all open surveys for this template")
+                            .build();
+
+                    try {
+                        updateStatus(Optional.empty(), username, instance.id().get(), cmd);
+                        return 1;
+                    } catch (IllegalArgumentException e) {
+                        LOG.error("Unable to mark survey instance {} as 'WITHDRAWN'. Error: {}", instance.id().get(), e);
+                        return 0;
+                    }
+
+                })
+                .mapToInt(d -> d)
+                .sum();
     }
 }

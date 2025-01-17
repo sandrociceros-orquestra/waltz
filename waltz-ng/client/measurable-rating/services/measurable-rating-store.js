@@ -21,12 +21,35 @@ import {checkIsEntityRef, checkIsIdSelector} from "../../common/checks";
 function store($http, baseApiUrl) {
 
     const baseUrl = `${baseApiUrl}/measurable-rating`;
-    const viewBaseUrl = `${baseApiUrl}/measurable-rating-view`;
+
+    const getById = (id) => {
+        return $http
+            .get(`${baseUrl}/id/${id}`)
+            .then(d => d.data);
+    };
+
+    const getViewById = (id) => {
+        return $http
+            .get(`${baseUrl}/id/${id}/view`)
+            .then(d => d.data);
+    };
 
     const findForEntityReference = (ref) => {
         checkIsEntityRef(ref);
         return $http
             .get(`${baseUrl}/entity/${ref.kind}/${ref.id}`)
+            .then(d => d.data);
+    };
+
+    const getViewForEntity = (ref) => {
+        return $http
+            .get(`${baseUrl}/entity/${ref.kind}/${ref.id}/view`)
+            .then(d => d.data);
+    };
+
+    const getViewByCategoryAndAppSelector = (categoryId, selector) => {
+        return $http
+            .post(`${baseUrl}/category/${categoryId}/view`, selector)
             .then(d => d.data);
     };
 
@@ -50,17 +73,17 @@ function store($http, baseApiUrl) {
             .then(d => d.data);
     };
 
-    const statsByAppSelector = (options) => {
-        checkIsIdSelector(options);
+    const statsByAppSelector = (params) => {
+        checkIsIdSelector(params.options);
         return $http
-            .post(`${baseUrl}/stats-by/app-selector`, options)
+            .post(`${baseUrl}/stats-by/app-selector`, params)
             .then(d => d.data);
     };
 
-    const statsForRelatedMeasurables = (options) => {
+    const hasMeasurableRatings = (options) => {
         checkIsIdSelector(options);
         return $http
-            .post(`${baseUrl}/related-stats/measurable`, options)
+            .post(`${baseUrl}/has-measurable-ratings`, options)
             .then(d => d.data);
     };
 
@@ -70,10 +93,24 @@ function store($http, baseApiUrl) {
             .then(d => d.data);
     };
 
-    const save = (ref, measurableId, rating = "Z", previousRating, description = "") => {
+    const saveRatingItem = (ref, measurableId, rating = "Z") => {
         checkIsEntityRef(ref);
         return $http
-            .post(`${baseUrl}/entity/${ref.kind}/${ref.id}/measurable/${measurableId}`, { rating, previousRating, description })
+            .post(`${baseUrl}/entity/${ref.kind}/${ref.id}/measurable/${measurableId}/rating`, rating)
+            .then(d => d.data);
+    };
+
+    const saveRatingIsPrimary = (ref, measurableId, isPrimary = false) => {
+        checkIsEntityRef(ref);
+        return $http
+            .post(`${baseUrl}/entity/${ref.kind}/${ref.id}/measurable/${measurableId}/is-primary`, isPrimary)
+            .then(d => d.data);
+    };
+
+    const saveRatingDescription = (ref, measurableId, description = "") => {
+        checkIsEntityRef(ref);
+        return $http
+            .post(`${baseUrl}/entity/${ref.kind}/${ref.id}/measurable/${measurableId}/description`, description)
             .then(d => d.data);
     };
 
@@ -92,14 +129,20 @@ function store($http, baseApiUrl) {
     };
 
     return {
+        getById,
+        getViewById,
+        getViewForEntity,
+        getViewByCategoryAndAppSelector,
         findByMeasurableSelector,
         findByAppSelector,
         findByCategory,
         findForEntityReference,
         countByMeasurableCategory,
         statsByAppSelector,
-        statsForRelatedMeasurables,
-        save,
+        hasMeasurableRatings,
+        saveRatingItem,
+        saveRatingIsPrimary,
+        saveRatingDescription,
         remove,
         removeByCategory
     };
@@ -113,6 +156,21 @@ const serviceName = "MeasurableRatingStore";
 
 
 export const MeasurableRatingStore_API = {
+    getById: {
+        serviceName,
+        serviceFnName: "getById",
+        description: "finds measurable rating by id"
+    },
+    getViewById: {
+        serviceName,
+        serviceFnName: "getViewById",
+        description: "finds measurable rating, with measurable, decom, and replacement details by id"
+    },
+    getViewForEntity: {
+        serviceName,
+        serviceFnName: "getViewForEntity",
+        description: "finds all details related to the measurable ratings for an entity"
+    },
     findByMeasurableSelector: {
         serviceName,
         serviceFnName: "findByMeasurableSelector",
@@ -122,6 +180,11 @@ export const MeasurableRatingStore_API = {
         serviceName,
         serviceFnName: "findByAppSelector",
         description: "finds measurables by app selector"
+    },
+    getViewByCategoryAndAppSelector: {
+        serviceName,
+        serviceFnName: "getViewByCategoryAndAppSelector",
+        description: "finds measurable ratings and primary assessments for ratings using an app id selector limited to a category"
     },
     findByCategory: {
         serviceName,
@@ -143,15 +206,25 @@ export const MeasurableRatingStore_API = {
         serviceFnName: "statsByAppSelector",
         description: "return measurable stats by app selector"
     },
-    statsForRelatedMeasurables: {
+    hasMeasurableRatings: {
         serviceName,
-        serviceFnName: "statsForRelatedMeasurables",
-        description: "return stats for related measurables"
+        serviceFnName: "hasMeasurableRatings",
+        description: "return boolean if there are measurable ratings for this selector [options]"
     },
-    save: {
+    saveRatingItem: {
         serviceName,
-        serviceFnName: "save",
-        description: "saves a measurable rating (either creating it or updating it as appropriate)"
+        serviceFnName: "saveRatingItem",
+        description: "saves a measurable rating item [ref, measurableId, rating]"
+    },
+    saveRatingIsPrimary: {
+        serviceName,
+        serviceFnName: "saveRatingIsPrimary",
+        description: "saves a measurable rating primary indicator [ref, measurableId, primaryFlag]"
+    },
+    saveRatingDescription: {
+        serviceName,
+        serviceFnName: "saveRatingDescription",
+        description: "saves a measurable rating description [ref, measurableId, description]"
     },
     remove: {
         serviceName,

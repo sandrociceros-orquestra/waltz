@@ -6,7 +6,16 @@ import org.finos.waltz.model.EntityLifecycleStatus;
 import org.finos.waltz.model.IdSelectionOptions;
 import org.finos.waltz.schema.tables.*;
 import org.finos.waltz.service.DIConfiguration;
-import org.jooq.*;
+import org.jooq.CaseConditionStep;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record1;
+import org.jooq.Record4;
+import org.jooq.Record6;
+import org.jooq.Select;
+import org.jooq.SelectConditionStep;
+import org.jooq.SelectJoinStep;
 import org.jooq.impl.DSL;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
@@ -56,7 +65,7 @@ public class FlowDiagramFromMeasurableGenerator {
             createLinkedEntities(tx, diagramId, measurableSelector);
             createOverlayGroup(tx, diagramId, measurableId, measurableSelector, measurableName);
 
-            System.out.printf("https://int1.waltz.intranet.db.com/waltz-dev2/flow-diagram/%d\n", diagramId);
+            System.out.printf("Created diagram .../flow-diagram/%d\n", diagramId);
         });
 
         // layout ?

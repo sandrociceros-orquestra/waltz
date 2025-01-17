@@ -16,189 +16,194 @@
  *
  */
 import _ from "lodash";
-import moment from "moment";
 import {CORE_API} from "../common/services/core-api-utils";
 import {mkSelectionOptions} from "../common/selector-utils";
-import {formats} from "../common";
-
-
-export function loadDecommData(
-    $q,
-    serviceBroker,
-    parentEntityRef,
-    force = false) {
-
-    const replacementAppPromise = serviceBroker
-        .loadViewData(
-            CORE_API.MeasurableRatingReplacementStore.findForEntityRef,
-            [parentEntityRef],
-            {force})
-        .then(r => ({replacementApps: r.data}));
-
-    const decommissionDatePromise = serviceBroker
-        .loadViewData(
-            CORE_API.MeasurableRatingPlannedDecommissionStore.findForEntityRef,
-            [parentEntityRef],
-            {force})
-        .then(r => r.data);
-
-    const replacingDecomms = serviceBroker
-        .loadViewData(
-            CORE_API.MeasurableRatingPlannedDecommissionStore.findForReplacingEntityRef,
-            [parentEntityRef])
-        .then(r => ({replacingDecommissions: r.data}));
-
-    const parentApplication = serviceBroker.loadViewData(CORE_API.ApplicationStore.getById, [parentEntityRef.id])
-        .then(r => r.data);
-
-    return $q
-        .all([replacementAppPromise, decommissionDatePromise, replacingDecomms, parentApplication])
-        .then(([replacementApps, decommissionDates, replacingDecoms, parentApplication]) => {
-
-            const appRetirementDate = new Date(parentApplication.plannedRetirementDate);
-
-            const plannedDecomms = (_.isNull(parentApplication.plannedRetirementDate))
-                ? _.map(decommissionDates, d => Object.assign({}, d, { isValid: true}))
-                : _.map(decommissionDates,d => {
-
-                    const decomDate = new Date(d.plannedDecommissionDate);
-
-                    const sameDate = appRetirementDate.getFullYear() === decomDate.getFullYear()
-                        && appRetirementDate.getMonth() === decomDate.getMonth()
-                        && appRetirementDate.getDate() === decomDate.getDate();
-
-                    const isValid = appRetirementDate > decomDate || sameDate;
-
-                    return Object.assign({}, d, { isValid: isValid})
-                });
-
-            return Object.assign({},
-                                 replacementApps,
-                                 replacingDecoms,
-                                 {plannedDecommissions: plannedDecomms});
-        });
-}
-
-
-
+import {lastViewedMeasurableCategoryKey} from "../user";
+import {reduceToSelectedNodesOnly} from "../common/hierarchy-utils";
+import {entity} from "../common/services/enums/entity";
+import {editOperations} from "../common/services/enums/operation";
 
 
 export function loadAllData(
     $q,
     serviceBroker,
     parentEntityRef,
-    allMeasurables = false,
     force = false) {
 
-    const allocationSchemesPromise = serviceBroker
-        .loadAppData(CORE_API.AllocationSchemeStore.findAll)
-        .then(r => ({allocationSchemes: r.data}));
-
-    const ratingSchemesPromise = serviceBroker
-        .loadAppData(CORE_API.RatingSchemeStore.findAll)
-        .then(r => ({ratingSchemesById: _.keyBy(r.data, "id")}));
+    const applicationPromise = serviceBroker
+        .loadViewData(CORE_API.ApplicationStore.getById, [parentEntityRef.id])
+        .then(r => ({ application: r.data}));
 
     const categoriesPromise = serviceBroker
-        .loadAppData(CORE_API.MeasurableCategoryStore.findAll)
-        .then(r => ({
-            categories: r.data,
-            categoriesById: _.keyBy(r.data, d => d.id)
-        }));
+            .loadViewData(
+                CORE_API.MeasurableCategoryStore.findPopulatedCategoriesForRef,
+                [parentEntityRef],
+                {force})
+            .then(r => ({ categories: r.data}));
 
-    const roadmapsPromise = serviceBroker
-        .loadViewData(
-            CORE_API.RoadmapStore.findRoadmapsAndScenariosByRatedEntity,
-            [ parentEntityRef])
-        .then(r => ({roadmapReferences: r.data}));
-
-    // if we are in edit mode we will be loading all measurables, otherwise just the needed measurables
-    const measurablesCall = allMeasurables
-        ? serviceBroker.loadAppData(CORE_API.MeasurableStore.findAll)
-        : serviceBroker.loadViewData(
-            CORE_API.MeasurableStore.findMeasurablesBySelector,
-            [mkSelectionOptions(parentEntityRef)],
-            { force });
-
-    const measurablesPromise = measurablesCall
-        .then(r => ({measurables: r.data}));
-
-    const ratingsPromise = serviceBroker
-        .loadViewData(
-            CORE_API.MeasurableRatingStore.findForEntityReference,
-            [ parentEntityRef ],
-            { force })
-        .then(r => ({ratings: r.data}));
-
-    const allocationsPromise = serviceBroker
-        .loadViewData(
-            CORE_API.AllocationStore.findByEntity,
-            [parentEntityRef],
-            { force })
-        .then(r => ({
-            allocations: r.data,
-            allocationTotalsByScheme: _
-                .chain(r.data)
-                .groupBy(d => d.schemeId)
-                .mapValues(xs => _.sumBy(xs, x => x.percentage))
-                .value()}));
-
-    const decommPromise = loadDecommData(
-        $q,
-        serviceBroker,
-        parentEntityRef,
-        force);
+    const lastViewedCategoryPromise = serviceBroker
+        .loadAppData(CORE_API.UserPreferenceStore.findAllForUser, [], {force: true})
+        .then(r => {
+            const lastViewed = _.find(r.data, d => d.key === lastViewedMeasurableCategoryKey);
+            return {
+                lastViewedCategoryId: lastViewed
+                    ? Number(lastViewed.value)
+                    : null
+            };
+        });
 
     return $q
         .all([
-            measurablesPromise,
-            ratingSchemesPromise,
-            ratingsPromise,
+            applicationPromise,
             categoriesPromise,
-            allocationsPromise,
-            allocationSchemesPromise,
-            decommPromise,
-            roadmapsPromise])
+            lastViewedCategoryPromise
+        ])
         .then(results => Object.assign({}, ...results));
 }
 
 
-/**
- *
- * @param ctx - {measurables: [], allocationSchemes: [], categories: [], ratingSchemesById: {}, allocations: []}
- * @param includeEmpty
- * @returns {*}
- */
-export function mkTabs(ctx, includeEmpty = false) {
+function prepareTabForCategory(measurableRatingsView,
+                               allocationsView,
+                               decommissionsView,
+                               assessmentsView,
+                               application,
+                               showAllMeasurables = true) {
 
-    const measurablesByCategory = _.groupBy(ctx.measurables, d => d.categoryId);
-    const allocationSchemesByCategory = _.groupBy(ctx.allocationSchemes, d => d.measurableCategoryId);
+    const ratedMeasurables = _.map(measurableRatingsView.measurableRatings, d => d.measurableId);
+    const replacingMeasurables = _.map(decommissionsView.replacingDecommissions, d => d.measurableRating.measurableId);
 
-    return _
-        .chain(ctx.categories)
-        .map(category => {
-            const measurablesForCategory = measurablesByCategory[category.id] || [];
-            const measurableIds = _.map(measurablesForCategory, d => d.id);
-            const ratingsForCategory = _.filter(
-                ctx.ratings,
-                r => _.includes(measurableIds, r.measurableId));
-            const ratingScheme = ctx.ratingSchemesById[category.ratingSchemeId];
-            return {
-                category,
-                ratingScheme,
-                measurables: measurablesForCategory,
-                ratings: ratingsForCategory,
-                allocationSchemes: allocationSchemesByCategory[category.id] || [],
-                allocations: ctx.allocations
-            };
-        })
-        .filter(t => t.measurables.length > 0 || includeEmpty)
-        .sortBy(tab => tab.category.name)
+    const requiredMeasurables = _.concat(ratedMeasurables, replacingMeasurables);
+
+    const measurableRatingSchemeItemsByCode = _.keyBy(measurableRatingsView.ratingSchemeItems, d => d.rating);
+    const assessmentRatingSchemeItemsById = _.keyBy(assessmentsView.ratingSchemeItems, d => d.id);
+
+    const measurableHierarchyById = _.keyBy(measurableRatingsView.measurableHierarchy, d => d.measurableId);
+
+    const measurables = showAllMeasurables
+        ? measurableRatingsView.measurables
+        : reduceToSelectedNodesOnly(measurableRatingsView.measurables, requiredMeasurables);
+
+    const ratings = _
+        .chain(measurableRatingsView.measurableRatings)
+        .map(r => Object.assign(r, {ratingSchemeItem: measurableRatingSchemeItemsByCode[r.rating]}))
         .value();
+
+    const assessmentRatings = _
+        .chain(assessmentsView.assessmentRatings)
+        .map(r => Object.assign(r, {ratingSchemeItem: assessmentRatingSchemeItemsById[r.ratingId]}))
+        .value();
+
+    const allocationTotalsByScheme = _
+        .chain(allocationsView.allocations)
+        .groupBy(d => d.schemeId)
+        .mapValues(d => _.sumBy(d, a => a.percentage))
+        .value();
+
+    return {
+        category: _.head(measurableRatingsView.measurableCategories),
+        measurables,
+        ratings,
+        allocationSchemes: allocationsView.allocationSchemes,
+        allocations: allocationsView.allocations,
+        assessmentDefinitions: assessmentsView.assessmentDefinitions,
+        assessmentRatings,
+        plannedDecommissions: decommissionsView.plannedDecommissions,
+        plannedReplacements: decommissionsView.plannedReplacements,
+        replacingDecommissions: decommissionsView.replacingDecommissions,
+        ratingSchemeItems: measurableRatingsView.ratingSchemeItems,
+        allocationTotalsByScheme,
+        measurableHierarchyById
+    };
+}
+
+export function mkTab(ctx, application, showAllMeasurables = false) {
+
+    return prepareTabForCategory(
+        ctx.measurableRatings,
+        ctx.allocations,
+        ctx.decommissions,
+        ctx.primaryAssessments,
+        application,
+        showAllMeasurables);
+
+}
+
+export function determineStartingTab(categories = [], activeTab, lastViewedCategoryId) {
+    // category last viewed or first with ratings, or simply first if no ratings
+    const tabForLastCategoryViewed = _.find(categories, t => t.category.id === lastViewedCategoryId);
+    const tabForActive = _.find(categories, t => t.category.id === activeTab?.category.id);
+    return tabForActive || tabForLastCategoryViewed || categories[0];
 }
 
 
-export function determineStartingTab(tabs = []) {
-    // first with ratings, or simply first if no ratings
-    return _.find(tabs, t => t.ratings.length > 0 ) || tabs[0];
+export function determineEditableCategories(categories, permissions, userRoles) {
+    const editableCategoriesForUser = _
+        .chain(permissions)
+        .filter(d => d.subjectKind === entity.MEASURABLE_RATING.key
+            && _.includes(editOperations, d.operation)
+            && d.qualifierReference.kind === entity.MEASURABLE_CATEGORY.key)
+        .map(d => d.qualifierReference.id)
+        .uniq()
+        .value();
+
+    return _.filter(
+        categories,
+        t => {
+            const hasRole = _.includes(userRoles, t.ratingEditorRole);
+            const editableCategoryForUser = _.includes(editableCategoriesForUser, t.id);
+            const isEditableCategory = t.editable;
+            return isEditableCategory && (hasRole || editableCategoryForUser);
+        });
 }
 
+function checkPlannedDecomDateIsValid(decomDateStr, entityRetirementDateStr) {
+
+    if (_.isNil(entityRetirementDateStr)){
+        return true;
+    } else {
+        const entityDate = new Date(entityRetirementDateStr);
+        const newDecomDate = new Date(decomDateStr);
+
+        const sameDate = entityDate.getFullYear() === newDecomDate.getFullYear()
+            && entityDate.getMonth() === newDecomDate.getMonth()
+            && entityDate.getDate() === newDecomDate.getDate();
+
+        return entityDate > newDecomDate || sameDate;
+    }
+}
+
+
+
+export const DECOM_ALLOWED_STATUS = {
+    FAIL: Symbol("FAIL"),
+    PASS: Symbol("PASS"),
+    CONFIRM: Symbol("CONFIRM")
+}
+
+
+export function checkPlannedDecommIsValid(dateChange, application) {
+
+    if (_.isNil(application)) {
+        return {
+            status: DECOM_ALLOWED_STATUS.PASS,
+            message: null
+
+        }
+    } else if (application.entityLifecycleStatus === "REMOVED"){
+        return {
+            status: DECOM_ALLOWED_STATUS.FAIL,
+            message: "Decommission date cannot be set. This application is no longer active"
+        }
+    } else if (checkPlannedDecomDateIsValid(dateChange.newVal, application?.plannedRetirementDate)){
+        return {
+            status: DECOM_ALLOWED_STATUS.PASS,
+            message: null
+        }
+    } else {
+        const appDate = new Date(application.plannedRetirementDate).toDateString();
+        return {
+            status: DECOM_ALLOWED_STATUS.CONFIRM,
+            errorMsg: `This decommission date is later then the planned retirement date of the application: ${appDate}`
+        }
+    }
+}

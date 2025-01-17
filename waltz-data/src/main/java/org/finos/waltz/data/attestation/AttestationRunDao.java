@@ -18,45 +18,64 @@
 
 package org.finos.waltz.data.attestation;
 
-import org.finos.waltz.schema.tables.records.AttestationRunRecord;
+import org.finos.waltz.common.SetUtilities;
 import org.finos.waltz.data.InlineSelectFieldFactory;
+import org.finos.waltz.data.involvement_group.InvolvementGroupDao;
 import org.finos.waltz.model.EntityKind;
 import org.finos.waltz.model.EntityReference;
 import org.finos.waltz.model.HierarchyQueryScope;
 import org.finos.waltz.model.IdSelectionOptions;
-import org.finos.waltz.model.attestation.*;
-import org.jooq.*;
+import org.finos.waltz.model.attestation.AttestationRun;
+import org.finos.waltz.model.attestation.AttestationRunCreateCommand;
+import org.finos.waltz.model.attestation.AttestationRunRecipient;
+import org.finos.waltz.model.attestation.AttestationRunResponseSummary;
+import org.finos.waltz.model.attestation.AttestationStatus;
+import org.finos.waltz.model.attestation.ImmutableAttestationRun;
+import org.finos.waltz.model.attestation.ImmutableAttestationRunRecipient;
+import org.finos.waltz.model.attestation.ImmutableAttestationRunResponseSummary;
+import org.finos.waltz.schema.tables.records.AttestationRunRecord;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record;
+import org.jooq.Record1;
+import org.jooq.Record3;
+import org.jooq.RecordMapper;
+import org.jooq.Select;
+import org.jooq.SelectHavingStep;
 import org.jooq.impl.DSL;
+import org.jooq.lambda.tuple.Tuple2;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
+import static java.util.Collections.emptyList;
+import static org.finos.waltz.common.Checks.checkNotNull;
+import static org.finos.waltz.common.DateTimeUtilities.nowUtcTimestamp;
+import static org.finos.waltz.common.DateTimeUtilities.toLocalDate;
+import static org.finos.waltz.common.DateTimeUtilities.toSqlDate;
 import static org.finos.waltz.schema.tables.AttestationInstance.ATTESTATION_INSTANCE;
 import static org.finos.waltz.schema.tables.AttestationInstanceRecipient.ATTESTATION_INSTANCE_RECIPIENT;
 import static org.finos.waltz.schema.tables.AttestationRun.ATTESTATION_RUN;
-import static org.finos.waltz.common.Checks.checkNotNull;
-import static org.finos.waltz.common.DateTimeUtilities.*;
-import static org.finos.waltz.common.ListUtilities.newArrayList;
-import static org.finos.waltz.common.StringUtilities.join;
-import static org.finos.waltz.common.StringUtilities.splitThenMap;
+import static org.jooq.lambda.tuple.Tuple.tuple;
 
 @Repository
 public class AttestationRunDao {
 
     private static final Field<String> ENTITY_NAME_FIELD = InlineSelectFieldFactory.mkNameField(
             ATTESTATION_RUN.SELECTOR_ENTITY_ID,
-            ATTESTATION_RUN.SELECTOR_ENTITY_KIND,
-            newArrayList(EntityKind.values()))
+            ATTESTATION_RUN.SELECTOR_ENTITY_KIND)
             .as("entity_name");
 
     private static final Field<String> ATTESTED_ENTITY_NAME_FIELD = InlineSelectFieldFactory.mkNameField(
             ATTESTATION_RUN.ATTESTED_ENTITY_ID,
-            ATTESTATION_RUN.ATTESTED_ENTITY_KIND,
-            newArrayList(EntityKind.values()))
+            ATTESTATION_RUN.ATTESTED_ENTITY_KIND)
             .as("attested_entity_name");
 
     private static final Field<BigDecimal> COMPLETE_SUM = DSL.sum(DSL
@@ -67,19 +86,22 @@ public class AttestationRunDao {
             .when(ATTESTATION_INSTANCE.ATTESTED_BY.isNull(), DSL.val(1))
             .otherwise(DSL.val(0))).as("Pending");
 
-    private static final String ID_SEPARATOR = ";";
 
-    private static final RecordMapper<Record, AttestationRun> TO_DOMAIN_MAPPER = r -> {
+    private static AttestationRun mkAttestationRun(Record r, Map<Long, List<Long>> attestationInvolvementGroupKindIds) {
+
         AttestationRunRecord record = r.into(ATTESTATION_RUN);
 
+        Long recipientInvolvementGroupId = record.getRecipientInvolvementGroupId();
+        List<Long> recipients = attestationInvolvementGroupKindIds.getOrDefault(recipientInvolvementGroupId, emptyList());
+
+
         Optional<EntityReference> attestedEntityRef = Optional.empty();
-        if(record.getAttestedEntityKind() != null && record.getAttestedEntityId() != null) {
+        if (record.getAttestedEntityKind() != null && record.getAttestedEntityId() != null) {
             attestedEntityRef = Optional.of(EntityReference.mkRef(
                     EntityKind.valueOf(record.getAttestedEntityKind()),
                     record.getAttestedEntityId(),
                     r.getValue(ATTESTED_ENTITY_NAME_FIELD)));
         }
-
 
         return ImmutableAttestationRun.builder()
                 .id(record.getId())
@@ -92,10 +114,7 @@ public class AttestationRunDao {
                                 record.getSelectorEntityId(),
                                 r.getValue(ENTITY_NAME_FIELD)),
                         HierarchyQueryScope.valueOf(record.getSelectorHierarchyScope())))
-                .involvementKindIds(splitThenMap(
-                        record.getInvolvementKindIds(),
-                        ID_SEPARATOR,
-                        Long::valueOf))
+                .involvementKindIds(recipients)
                 .issuedBy(record.getIssuedBy())
                 .issuedOn(toLocalDate(record.getIssuedOn()))
                 .dueDate(toLocalDate(record.getDueDate()))
@@ -128,48 +147,62 @@ public class AttestationRunDao {
 
 
     public AttestationRun getById(long attestationRunId) {
-        return dsl.select(ATTESTATION_RUN.fields())
+
+        Map<Long, List<Long>> involvementsByGroupId = InvolvementGroupDao.findAllInvolvementsByGroupId(dsl);
+
+        return dsl
+                .select(ATTESTATION_RUN.fields())
                 .select(ENTITY_NAME_FIELD)
                 .select(ATTESTED_ENTITY_NAME_FIELD)
                 .from(ATTESTATION_RUN)
                 .where(ATTESTATION_RUN.ID.eq(attestationRunId))
-                .fetchOne(TO_DOMAIN_MAPPER);
+                .fetchOne(r -> mkAttestationRun(r, involvementsByGroupId));
     }
 
 
     public List<AttestationRun> findAll() {
+
+        Map<Long, List<Long>> involvementsByGroupId = InvolvementGroupDao.findAllInvolvementsByGroupId(dsl);
+
         return dsl.select(ATTESTATION_RUN.fields())
                 .select(ENTITY_NAME_FIELD)
                 .select(ATTESTED_ENTITY_NAME_FIELD)
                 .from(ATTESTATION_RUN)
-                .fetch(TO_DOMAIN_MAPPER);
+                .fetch(r -> mkAttestationRun(r, involvementsByGroupId));
     }
 
 
     public List<AttestationRun> findByRecipient(String userId) {
+
+        Map<Long, List<Long>> involvementsByGroupId = InvolvementGroupDao.findAllInvolvementsByGroupId(dsl);
+
         return dsl.selectDistinct(ATTESTATION_RUN.fields())
                 .select(ENTITY_NAME_FIELD)
                 .select(ATTESTED_ENTITY_NAME_FIELD)
                 .from(ATTESTATION_RUN)
                 .innerJoin(ATTESTATION_INSTANCE)
-                    .on(ATTESTATION_INSTANCE.ATTESTATION_RUN_ID.eq(ATTESTATION_RUN.ID))
+                .on(ATTESTATION_INSTANCE.ATTESTATION_RUN_ID.eq(ATTESTATION_RUN.ID))
                 .innerJoin(ATTESTATION_INSTANCE_RECIPIENT)
-                    .on(ATTESTATION_INSTANCE_RECIPIENT.ATTESTATION_INSTANCE_ID.eq(ATTESTATION_INSTANCE.ID))
+                .on(ATTESTATION_INSTANCE_RECIPIENT.ATTESTATION_INSTANCE_ID.eq(ATTESTATION_INSTANCE.ID))
                 .where(ATTESTATION_INSTANCE_RECIPIENT.USER_ID.eq(userId))
-                .fetch(TO_DOMAIN_MAPPER);
+                .fetch(r -> mkAttestationRun(r, involvementsByGroupId));
     }
 
 
     public List<AttestationRun> findByEntityReference(EntityReference ref) {
-        return dsl.select(ATTESTATION_RUN.fields())
+
+        Map<Long, List<Long>> involvementsByGroupId = InvolvementGroupDao.findAllInvolvementsByGroupId(dsl);
+
+        return dsl
+                .select(ATTESTATION_RUN.fields())
                 .select(ENTITY_NAME_FIELD)
                 .select(ATTESTED_ENTITY_NAME_FIELD)
                 .from(ATTESTATION_RUN)
                 .innerJoin(ATTESTATION_INSTANCE)
-                    .on(ATTESTATION_INSTANCE.ATTESTATION_RUN_ID.eq(ATTESTATION_RUN.ID))
+                .on(ATTESTATION_INSTANCE.ATTESTATION_RUN_ID.eq(ATTESTATION_RUN.ID))
                 .where(ATTESTATION_INSTANCE.PARENT_ENTITY_KIND.eq(ref.kind().name()))
                 .and(ATTESTATION_INSTANCE.PARENT_ENTITY_ID.eq(ref.id()))
-                .fetch(TO_DOMAIN_MAPPER);
+                .fetch(r -> mkAttestationRun(r, involvementsByGroupId));
     }
 
 
@@ -187,6 +220,8 @@ public class AttestationRunDao {
 
     public List<AttestationRun> findByIdSelector(Select<Record1<Long>> selector) {
 
+        Map<Long, List<Long>> involvementsByGroupId = InvolvementGroupDao.findAllInvolvementsByGroupId(dsl);
+
         return dsl.select(ATTESTATION_RUN.fields())
                 .select(ENTITY_NAME_FIELD)
                 .select(ATTESTED_ENTITY_NAME_FIELD)
@@ -194,7 +229,7 @@ public class AttestationRunDao {
                 .innerJoin(ATTESTATION_INSTANCE)
                 .on(ATTESTATION_INSTANCE.ATTESTATION_RUN_ID.eq(ATTESTATION_RUN.ID))
                 .where(ATTESTATION_INSTANCE.ID.in(selector))
-                .fetch(TO_DOMAIN_MAPPER);
+                .fetch(r -> mkAttestationRun(r, involvementsByGroupId));
     }
 
     public Long create(String userId, AttestationRunCreateCommand command) {
@@ -207,7 +242,6 @@ public class AttestationRunDao {
         record.setSelectorEntityKind(command.selectionOptions().entityReference().kind().name());
         record.setSelectorEntityId(command.selectionOptions().entityReference().id());
         record.setSelectorHierarchyScope(command.selectionOptions().scope().name());
-        record.setInvolvementKindIds(join(command.involvementKindIds(), ID_SEPARATOR));
         record.setIssuedBy(userId);
         record.setIssuedOn(toSqlDate(command.issuedOn()));
         record.setDueDate(toSqlDate(command.dueDate()));
@@ -229,13 +263,16 @@ public class AttestationRunDao {
 
 
     public Set<AttestationRun> findPendingRuns() {
+
+        Map<Long, List<Long>> involvementsByGroupId = InvolvementGroupDao.findAllInvolvementsByGroupId(dsl);
+
         return dsl
                 .select(ATTESTATION_RUN.fields())
                 .select(ENTITY_NAME_FIELD)
                 .select(ATTESTED_ENTITY_NAME_FIELD)
                 .from(ATTESTATION_RUN)
                 .where(ATTESTATION_RUN.STATUS.eq(AttestationStatus.PENDING.name()))
-                .fetchSet(TO_DOMAIN_MAPPER);
+                .fetchSet(r -> mkAttestationRun(r, involvementsByGroupId));
     }
 
 
@@ -256,6 +293,72 @@ public class AttestationRunDao {
                     .where(ATTESTATION_RUN.ID.in(runIds))
                     .execute();
         }
-
     }
+
+
+    public int updateRecipientInvolvementGroupId(long attestationRunId, Long recipientInvGroupId) {
+        return dsl
+                .update(ATTESTATION_RUN)
+                .set(ATTESTATION_RUN.RECIPIENT_INVOLVEMENT_GROUP_ID, recipientInvGroupId)
+                .where(ATTESTATION_RUN.ID.eq(attestationRunId))
+                .execute();
+    }
+
+
+    public Set<AttestationRunRecipient> findRunRecipients(long runId) {
+
+        Field<Boolean> isPendingField = DSL
+                .when(ATTESTATION_INSTANCE.ATTESTED_AT.isNull(), DSL.value(false))
+                .otherwise(DSL.value(true));
+
+        SelectHavingStep<Record3<String, Boolean, Long>> qry = dsl
+                .select(ATTESTATION_INSTANCE_RECIPIENT.USER_ID,
+                        isPendingField.as("is_pending_field"),
+                        ATTESTATION_INSTANCE.ID)
+                .from(ATTESTATION_RUN)
+                .innerJoin(ATTESTATION_INSTANCE)
+                .on(ATTESTATION_INSTANCE.ATTESTATION_RUN_ID.eq(ATTESTATION_RUN.ID))
+                .innerJoin(ATTESTATION_INSTANCE_RECIPIENT)
+                .on(ATTESTATION_INSTANCE_RECIPIENT.ATTESTATION_INSTANCE_ID.eq(ATTESTATION_INSTANCE.ID))
+                .where(ATTESTATION_RUN.ID.eq(runId));
+
+        Map<String, ImmutableAttestationRunRecipient> recipientsByUserId = new HashMap<>();
+
+        Map<Tuple2<String, Boolean>, Long> attestationInfo = qry
+                .fetchSet(r -> r)
+                .stream()
+                .collect(Collectors.groupingBy(
+                        r -> tuple(r.get(ATTESTATION_INSTANCE_RECIPIENT.USER_ID), r.get("is_pending_field", Boolean.class)),
+                        Collectors.counting()));
+
+        attestationInfo
+                .forEach((key, value) -> {
+                    String userId = key.v1;
+                    boolean isPending = key.v2;
+                    long count = value;
+
+                    ImmutableAttestationRunRecipient recipient = recipientsByUserId.getOrDefault(
+                            userId,
+                            ImmutableAttestationRunRecipient.builder()
+                                    .userId(userId)
+                                    .pendingCount(0)
+                                    .completedCount(0)
+                                    .build());
+
+                    if (isPending) {
+                        recipient = ImmutableAttestationRunRecipient
+                                .copyOf(recipient)
+                                .withPendingCount(count);
+                    } else {
+                        recipient = ImmutableAttestationRunRecipient
+                                .copyOf(recipient)
+                                .withCompletedCount(count);
+                    }
+
+                    recipientsByUserId.put(userId, recipient);
+                });
+
+        return SetUtilities.fromCollection(recipientsByUserId.values());
+    }
+
 }

@@ -36,16 +36,15 @@
             <!-- EDIT SECTION -->
             <div ng-if="$ctrl.visibility.ratingEditor">
 
-                <span ng-if="$ctrl.selected.rating.isReadOnly">
-                    <div>
-                        <b style="font-weight: bolder">
-                            <waltz-icon name="lock"></waltz-icon> Locked
-                        </b>
-                        <p style="padding-top: 1em;">
-                           This rating has been marked as read only and cannot be edited
-                        </p>
-                    </div>
-                </span>
+                <div ng-if="$ctrl.selected.rating.isReadOnly">
+                    <b style="font-weight: bolder">
+                        <waltz-icon name="lock"></waltz-icon>
+                        Locked
+                    </b>
+                    <p style="padding-top: 1em;">
+                        This rating has been marked as read only and cannot be edited
+                    </p>
+                </div>
 
                 <span ng-if="!$ctrl.selected.rating.isReadOnly"
                       ng-include="'wmrep-rating-editor'">
@@ -79,22 +78,23 @@
         <!-- TAB HEADERS -->
         <input ng-repeat-start="tab in $ctrl.tabs track by tab.category.id"
                type="radio"
-               ng-change="$ctrl.onTabChange()"
-               ng-model="$ctrl.activeTab"
-               ng-value="tab"
-               ng-disabled="! tab.measurables"
+               ng-change="$ctrl.onTabChange(tab.category.id)"
+               ng-model="$ctrl.visibility.tab"
+               ng-value="tab.category.id"
                name="measurable_rating_edit"
                id="{{ tab.category.id + '_' + $id }}">
         <label class="wt-label"
                for="{{ tab.category.id + '_' + $id }}"
                ng-repeat-end>
             <span ng-bind="tab.category.name"
-                  ng-class="{ italics: tab.ratings.length == 0 }">
+                  ng-class="{ italics: tab.length == 0 }">
             </span>
-            <span ng-show='tab.ratings.length > 0'
+
+<!--            EDIT THIS FOR RATING COUNT-->
+            <span ng-show='tab.ratingCount > 0'
                   class="small text-muted">
                 -
-                <span ng-bind="tab.ratings.length"></span>
+                <span ng-bind="tab.ratingCount"></span>
             </span>
         </label>
 
@@ -124,17 +124,25 @@
 <!-- TAB CONTENT -->
 <script type="text/ng-template"
         id="wmrep-tab-content">
+
+
     <div style="padding-top: 6px">
-        <waltz-measurable-rating-tree ratings="$ctrl.activeTab.ratings"
+        <waltz-loading-notification show="$ctrl.visibility.loading"
+                                    style="padding-top: 54px;"
+                                    name="Loading">
+        </waltz-loading-notification>
+
+        <waltz-measurable-rating-tree ng-show="!$ctrl.visibility.loading"
+                                      ratings="$ctrl.activeTab.ratings"
                                       allocations="$ctrl.activeTab.allocations"
                                       rating-scheme-items="$ctrl.activeTab.ratingSchemeItems"
                                       measurables="$ctrl.activeTab.measurables"
                                       on-keypress="$ctrl.onKeypress"
                                       scroll-height="600"
                                       on-select="$ctrl.onMeasurableSelect"
-                                      planned-decommissions="$ctrl.plannedDecommissions"
-                                      replacing-decommissions="$ctrl.replacingDecommissions"
-                                      replacement-apps="$ctrl.replacementApps">
+                                      planned-decommissions="$ctrl.activeTab.plannedDecommissions"
+                                      replacing-decommissions="$ctrl.activeTab.replacingDecommissions"
+                                      replacement-apps="$ctrl.activeTab.plannedReplacements">
         </waltz-measurable-rating-tree>
     </div>
 
@@ -231,10 +239,10 @@
 
         <!-- RATING -->
         <div class="row">
-            <div class="col-sm-3">
+            <div class="col-md-3">
                 Rating:
             </div>
-            <div class="col-sm-9">
+            <div class="col-md-9">
                 <waltz-rating-picker selected="$ctrl.selected.rating.rating"
                                      rating-scheme-items="$ctrl.activeTab.ratingSchemeItems"
                                      edit-disabled="$ctrl.saveInProgress"
@@ -244,13 +252,34 @@
             </div>
         </div>
 
+        <div class="row"
+             ng-if="$ctrl.selected.rating && $ctrl.activeTab.category.allowPrimaryRatings">
+            <div class="col-md-3">
+                Primary:
+            </div>
+            <div class="col-md-9">
+                <waltz-toggle icon-on="star"
+                              state="$ctrl.selected.rating.isPrimary"
+                              icon-off="star-o"
+                              label-on="Primary"
+                              label-off="Not Primary"
+                              on-toggle="$ctrl.onPrimaryToggle()">
+                </waltz-toggle>
+                <p class="help-block small">
+                    Only one primary rating is allowed per category, selecting this will deselect any other primary
+                    ratings for this entity
+                </p>
+            </div>
+        </div>
+
         <!-- COMMENT -->
         <div class="row"
+             ng-if="$ctrl.selected.rating"
              style="padding-top: 8px;">
-            <div class="col-sm-3">
+            <div class="col-md-3">
                 Comments:
             </div>
-            <div class="col-sm-9">
+            <div class="col-md-9">
                 <waltz-inline-edit-area placeholder='None'
                                         on-save="$ctrl.onSaveComment"
                                         value="$ctrl.selected.rating.description">
@@ -260,7 +289,8 @@
 
         <!-- DECOMMISSION -->
         <div ng-if="$ctrl.selected.rating">
-            <waltz-planned-decommission-editor planned-decommission="$ctrl.selected.decommission"
+            <waltz-planned-decommission-editor measurable-rating="$ctrl.selected.rating"
+                                               planned-decommission="$ctrl.selected.decommission"
                                                replacement-apps="$ctrl.selected.replacementApps"
                                                on-save-decommission-date="$ctrl.onSaveDecommissionDate"
                                                on-remove-decommission="$ctrl.onRemoveDecommission"

@@ -18,11 +18,16 @@
 
 package org.finos.waltz.data;
 
-import org.finos.waltz.common.FunctionUtilities;
 import org.finos.waltz.model.EntityKind;
 import org.finos.waltz.model.EntityReference;
 import org.finos.waltz.schema.Tables;
-import org.jooq.*;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record2;
+import org.jooq.SelectConditionStep;
+import org.jooq.SelectOrderByStep;
+import org.jooq.Table;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
@@ -32,8 +37,14 @@ import java.util.Set;
 import static java.lang.String.format;
 import static java.util.stream.Collectors.toMap;
 import static org.finos.waltz.common.Checks.checkNotNull;
-import static org.finos.waltz.schema.Tables.*;
 import static org.finos.waltz.model.EntityReference.mkRef;
+import static org.finos.waltz.schema.Tables.APPLICATION;
+import static org.finos.waltz.schema.Tables.CHANGE_INITIATIVE;
+import static org.finos.waltz.schema.Tables.LEGAL_ENTITY;
+import static org.finos.waltz.schema.Tables.ORGANISATIONAL_UNIT;
+import static org.finos.waltz.schema.Tables.PERSON;
+import static org.finos.waltz.schema.Tables.MEASURABLE;
+import static org.finos.waltz.schema.Tables.PHYSICAL_SPECIFICATION;
 import static org.jooq.lambda.tuple.Tuple.tuple;
 
 /**
@@ -60,14 +71,20 @@ public class EntityAliasPopulator {
             case LEGAL_ENTITY:
                 return fetchLegalEntityAliasToIdMap(identifiers);
             case PERSON:
-                return FunctionUtilities.time("fetch alias map people", () -> fetchPersonAliasToIdMap(identifiers));
+                return fetchPersonAliasToIdMap(identifiers);
             case CHANGE_INITIATIVE:
-                return FunctionUtilities.time("fetch alias map change initiatives", () -> fetchChangeInitiativeAliasToIdMap(identifiers));
+                return fetchChangeInitiativeAliasToIdMap(identifiers);
             case ORG_UNIT:
-                return FunctionUtilities.time("fetch alias map org units", () -> fetchOrgUnitAliasToIdMap(identifiers));
+                return fetchOrgUnitAliasToIdMap(identifiers);
+            case MEASURABLE:
+                return fetchMeasurableAliasToIdMap(identifiers);
             default:
                 throw new IllegalArgumentException(format("Cannot find lookup map for id for entity kind: %s", entityKind));
         }
+    }
+
+    private Map<String, Long> fetchMeasurableAliasToIdMap(Set<String> identifiers) {
+        return resolveSimpleAliases(identifiers, MEASURABLE, MEASURABLE.EXTERNAL_ID, MEASURABLE.ID);
     }
 
 

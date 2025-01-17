@@ -107,6 +107,17 @@
 
 
 <script type="text/ng-template"
+        id="wmcc/REORDER_SIBLINGS.html">
+    <p>
+        Reordering siblings of node:
+        <kbd ng-bind="$ctrl.measurable.name"></kbd>
+    </p>
+    <div ng-include="'wmcc/_REORDER_SIBLINGS.html'">
+    </div>
+</script>
+
+
+<script type="text/ng-template"
         id="wmcc/REMOVE.html">
     <p>
         Remove node:
@@ -255,6 +266,44 @@
                     </p>
                 </div>
             </div>
+       </div>
+    </div>
+</script>
+
+
+<script type="text/ng-template"
+        id="wmcc/MERGE.html">
+    <p>
+        The node being merged is:
+        <kbd ng-bind="$ctrl.measurable.name"></kbd>
+    </p>
+
+    <div>
+        <div class="form-group">
+
+            <label for="wmcc.target"
+                   class="control-label">
+                Target:
+            </label>
+            <div id="wmcc.target">
+                <div ng-if="!$ctrl.commandParams.target">
+                    <waltz-measurable-tree measurables="$ctrl.tree"
+                                           on-select="$ctrl.selectedOperation.onChange">
+                    </waltz-measurable-tree>
+                </div>
+                <div ng-if="$ctrl.commandParams.target">
+                    <p>
+                        Target: <kbd ng-bind="$ctrl.commandParams.target.name"></kbd>
+                        <br>
+                        <a ng-click="$ctrl.selectedOperation.onReset()"
+                           class="clickable">
+                            Clear target
+                        </a>.
+                    </p>
+                </div>
+            </div>
+            <waltz-taxonomy-change-command-preview preview="$ctrl.preview">
+            </waltz-taxonomy-change-command-preview>
         </div>
     </div>
 </script>
@@ -342,6 +391,18 @@
             </waltz-toggle>
         </div>
     </div>
+</script>
+
+<script type="text/ng-template"
+        id="wmcc/_REORDER_SIBLINGS.html">
+    <p class="help-block">
+        Drag and drop the list below, when finished click 'Submit change'.
+    </p>
+
+    <waltz-svelte-component component="$ctrl.ReorderMeasurables"
+                            list="$ctrl.siblings"
+                            on-reorder="$ctrl.selectedOperation.onChange">
+    </waltz-svelte-component>
 </script>
 
 

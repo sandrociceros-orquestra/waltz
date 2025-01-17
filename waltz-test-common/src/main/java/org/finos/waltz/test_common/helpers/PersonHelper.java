@@ -7,6 +7,7 @@ import org.jooq.DSLContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.finos.waltz.schema.tables.Person.PERSON;
@@ -29,7 +30,7 @@ public class PersonHelper {
         p.setEmail(name);
         p.setKind(PersonKind.EMPLOYEE.name());
         p.setDisplayName(name);
-        p.setEmployeeId(Long.toString(ctr.incrementAndGet()));
+        p.setEmployeeId(UUID.randomUUID().toString());
         p.insert();
 
         return p.getId();
@@ -60,4 +61,16 @@ public class PersonHelper {
         return p.getId();
     }
 
+
+    public void updateManager(Long employee, Long manager) {
+        String mgrEmpId = dsl
+                .select(PERSON.EMPLOYEE_ID)
+                .from(PERSON)
+                .where(PERSON.ID.eq(manager))
+                .fetchOne(PERSON.EMPLOYEE_ID);
+        dsl.update(PERSON)
+                .set(PERSON.MANAGER_EMPLOYEE_ID, mgrEmpId)
+                .where(PERSON.ID.eq(employee))
+                .execute();
+    }
 }

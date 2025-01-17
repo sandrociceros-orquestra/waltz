@@ -19,10 +19,10 @@
 
 import template from "./playpen1.html";
 import {initialiseData} from "../../common";
-import {CORE_API} from "../../common/services/core-api-utils";
+import CounterpartPicker from "../../logical-flow/components/edit/svelte/CounterpartPicker.svelte"
 
 const initData = {
-    taxonomy: []
+    CounterpartPicker
 };
 
 
@@ -33,22 +33,10 @@ function controller($q,
 
     vm.$onInit = () => {
 
-        serviceBroker
-            .loadViewData(
-                CORE_API.DataTypeStore.findAll,
-                //CORE_API.MeasurableStore.findAll,
-                [])
-            .then(r => {
-                console.log(r);
-                vm.taxonomy = r.data; // _.filter(r.data, m => m.categoryId === 12);
-                vm.linkStem = "data-types"; // data-types or measurable
-            });
-
     }
-
 }
 
-controller.$inject = ["$q", "ServiceBroker", "UserService"];
+controller.$inject = ["$q", "ServiceBroker"];
 
 const view = {
     template,

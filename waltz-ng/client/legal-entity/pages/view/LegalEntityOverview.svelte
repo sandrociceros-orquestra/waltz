@@ -10,6 +10,7 @@
     import SubSection from "../../../common/svelte/SubSection.svelte";
     import {activeSections, availableSections} from "../../../dynamic-section/section-store";
     import _ from "lodash";
+    import {primaryEntityReference as primaryRef} from "../../../assessments/components/rating-editor/rating-store";
 
     export let primaryEntityReference;
 
@@ -22,6 +23,7 @@
     }
 
     $: legalEntity = $legalEntityCall?.data;
+    $: $primaryRef = primaryEntityReference;
 
     function openAssessmentsSection() {
 
@@ -59,8 +61,7 @@
 </PageHeader>
 
 
-<div class="waltz-page-summary waltz-page-summary-attach"
-     style="margin-bottom: 5em;">
+<div class="waltz-page-summary waltz-page-summary-attach">
     <div class="waltz-display-section">
         <div class="row">
             <div class="col-md-6">

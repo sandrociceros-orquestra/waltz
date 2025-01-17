@@ -20,7 +20,8 @@
 
     <!-- HEADER -->
     <waltz-page-header name="{{ ctrl.logicalFlow.source.name }} {{ ctrl.logicalFlow ? '&rarr;' : '' }} {{ ctrl.logicalFlow.target.name }}"
-                       icon="random">
+                       icon="random"
+                       class="waltz-visibility-parent">
         <breadcrumbs>
             <ol class="waltz-breadcrumbs">
                 <li><a ui-sref="main">Home</a></li>
@@ -39,21 +40,107 @@
                 </li>
             </ol>
         </breadcrumbs>
+        <actions>
+            <button ng-click="ctrl.sharePageLink()"
+                    title="Copy url to clipboard"
+                    class="btn btn-skinny waltz-visibility-child-30">
+                <waltz-icon name="share-alt"></waltz-icon>
+            </button>
+        </actions>
     </waltz-page-header>
 
 
     <div class="waltz-page-summary waltz-page-summary-attach">
+        <waltz-section-actions>
+            <button ng-if="ctrl.canRestore"
+                    class="btn btn-xs btn-primary"
+                    uib-popover="Restore this flow, any physical flows that were active when this logical flow was removed will also be restored"
+                    popover-append-to-body="true"
+                    popover-popup-delay="300"
+                    popover-placement="bottom"
+                    popover-trigger="mouseenter"
+                    ng-click="ctrl.restoreFlow()">
+                Restore
+            </button>
+            <button ng-if="ctrl.canRemove"
+                    class="btn btn-xs btn-danger"
+                    uib-popover="Remove this flow, any physical flows that are attached to the flow will also be removed"
+                    popover-append-to-body="true"
+                    popover-popup-delay="300"
+                    popover-placement="bottom"
+                    popover-trigger="mouseenter"
+                    ng-click="ctrl.removeFlow()">
+                Remove
+            </button>
+        </waltz-section-actions>
         <div ng-if="ctrl.logicalFlow"
              ng-class="{
-                'ws-inactive': ctrl.logicalFlow.entityLifecycleStatus ==='REMOVED',
-                'ws-draft': ctrl.logicalFlow.entityLifecycleStatus ==='PENDING',
+                'ws-inactive': ctrl.isRemoved,
+                'ws-draft': ctrl.isDraft
              }">
             <div class="row">
                 <div class="col-md-6">
-                    <waltz-data-type-usage-panel parent-entity-ref="ctrl.entityReference"
-                                                 parent-flow="ctrl.entityReference"
-                                                 help-text="Data types referenced by this logical flow">
-                    </waltz-data-type-usage-panel>
+                    <div class="row">
+                        <div class="waltz-display-field-label col-sm-4">
+                            External ID
+                        </div>
+                        <div class="col-sm-8">
+                            <span ng-bind="ctrl.logicalFlow.externalId"></span>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="waltz-display-field-label col-sm-4">
+                            Provenance
+                        </div>
+                        <div class="col-sm-8">
+                            <span ng-bind="ctrl.logicalFlow.provenance"></span>
+                            <span class="text-muted"
+                                  ng-if="ctrl.logicalFlow.provenance != 'waltz'">
+                                <waltz-icon name="warning"
+                                            style="color: orange"
+                                            uib-popover="This flow has a provenance other than waltz.
+                                            Changes to this flow may be overwritten if it is sourced from another system."
+                                            popover-append-to-body="true"
+                                            popover-popup-delay="300"
+                                            popover-placement="right"
+                                            popover-trigger="mouseenter">
+                                </waltz-icon>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="row"
+                         ng-if="ctrl.logicalFlow.isReadOnly">
+                        <div class="col-sm-4 waltz-display-field-label">
+                            Read Only
+                        </div>
+                        <div class="col-sm-8">
+                            <waltz-icon name="lock"></waltz-icon>
+                            <span>This flow is marked read only and cannot be edited</span>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-sm-4 waltz-display-field-label">
+                            Data Types
+                        </div>
+                        <div class="col-sm-8">
+                            <waltz-svelte-component component="ctrl.AlignedDataTypesList"
+                                                    logical-flow="ctrl.logicalFlow">
+                            </waltz-svelte-component>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div waltz-has-role="ADMIN">
+                            <div class="col-sm-4 waltz-display-field-label">
+                                Toggle Read Only
+                            </div>
+                            <div class="col-sm-8">
+                                <waltz-toggle state="ctrl.isReadOnly"
+                                              label-on="Read Only"
+                                              label-off="Editable"
+                                              on-toggle="ctrl.onToggleReadOnly()"></waltz-toggle>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="col-md-6">
@@ -62,39 +149,22 @@
                     </waltz-assessment-rating-sub-section>
                 </div>
             </div>
-
             <div class="row">
-                <div class="col-sm-1 waltz-display-field-label">
-                    Provenance
+                <div class="col-sm-12">
+                    <div class="small text-muted"
+                         ng-if="ctrl.logicalFlow.lastUpdatedBy && ctrl.logicalFlow.lastUpdatedAt && ctrl.logicalFlow">
+                        Last updated by
+                        <span ng-bind="ctrl.logicalFlow.lastUpdatedBy"></span>
+                        (<waltz-from-now timestamp="ctrl.logicalFlow.lastUpdatedAt"></waltz-from-now>)
+                    </div>
                 </div>
-                <div class="col-sm-11">
-                    <span ng-bind="ctrl.logicalFlow.provenance"></span>
-                    <span class="text-muted"
-                          ng-if="ctrl.logicalFlow.provenance != 'waltz'">
-                        <waltz-icon name="warning"
-                                    style="color: orange"
-                                    uib-popover="This flow has a provenance other than waltz.
-                                    Changes to this flow may be overwritten if it is sourced from another system."
-                                    popover-append-to-body="true"
-                                    popover-popup-delay="300"
-                                    popover-placement="right"
-                                    popover-trigger="mouseenter">
-                        </waltz-icon>
-                    </span>
-                </div>
-            </div>
-            <div class="small text-muted"
-                 ng-if="ctrl.logicalFlow.lastUpdatedBy && ctrl.logicalFlow.lastUpdatedAt && ctrl.logicalFlow">
-                Last updated by
-                <span ng-bind="ctrl.logicalFlow.lastUpdatedBy"></span>
-                (<waltz-from-now timestamp="ctrl.logicalFlow.lastUpdatedAt"></waltz-from-now>)
             </div>
         </div>
         <waltz-no-data ng-if="!ctrl.logicalFlow">
             <message>No information for this logical flow</message>
         </waltz-no-data>
-
     </div>
+
     <div ng-if="ctrl.logicalFlow">
         <br>
 

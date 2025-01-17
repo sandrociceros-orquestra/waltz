@@ -182,7 +182,7 @@ export function groupHierarchyByKey(tree = [], keyFn = n => n.id, acc = {}) {
 
 
 export function flattenChildren(node, acc = []) {
-    _.forEach(node.children || [], child => {
+    _.forEach(node?.children || [], child => {
         acc.push(child);
         flattenChildren(child, acc);
     });
@@ -289,4 +289,54 @@ export function determineExpandedNodes(hierarchy, maxDepth = 100) {
         .concat()
         .flatten()
         .value();
+}
+
+
+/**
+ * Given a list of flat nodes and a starting node id will return the direct lineage of the
+ * tree with all parents and children of the starting node populated.  All other
+ * nodes are omitted.
+ *
+ * @param flatNodes  starting list of nodes
+ * @param nodeId  starting node id
+ * @param idFn  optional accessor for getting the node id (defaults to n=>n.id)
+ * @param parentIdFn  optional accessor for getting the parent node id (defaults to n=>n.parentId)
+ * @returns {*}  node at the top of the sliver, each node may have parent and children attributes populated
+ */
+export function directLineage(flatNodes,
+                              nodeId,
+                              idFn = n => n.id,
+                              parentIdFn = n => n.parentId) {
+    const cleanFlatNodes = _.map(flatNodes, n => Object.assign({}, n, {children: []}))
+    const byId = _.keyBy(cleanFlatNodes, idFn);
+    const byParentId = _.groupBy(cleanFlatNodes, parentIdFn);
+
+    const start = byId[nodeId];
+
+    // parents
+    let parent = byId[parentIdFn(start)];
+    let ptr = start;
+    while(parent != null) {
+        ptr.parent = parent;
+        parent.children = [ptr];
+        ptr = parent;
+        parent = byId[parentIdFn(parent)];
+    }
+
+    // recursively populate children
+    const recurse = (node) => {
+        const kids = byParentId[idFn(node)] || [];
+        if (kids) {
+            node.children = kids;
+            _.each(kids, recurse);
+        }
+    }
+    recurse(start);
+
+    // find head
+    let head = start;
+    while (head.parent != null) {
+        head = head.parent;
+    }
+    return head;
 }

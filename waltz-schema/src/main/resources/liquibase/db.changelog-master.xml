@@ -174,4 +174,60 @@
     <include file="db.changelog-1.48.xml"
              relativeToChangelogFile="true"/>
 
+    <include file="db.changelog-1.49.xml"
+             relativeToChangelogFile="true"/>
+
+    <include file="db.changelog-1.50.xml"
+             relativeToChangelogFile="true"/>
+
+    <include file="db.changelog-1.51.xml"
+             relativeToChangelogFile="true"/>
+
+    <include file="db.changelog-1.52.xml"
+             relativeToChangelogFile="true"/>
+
+    <include file="db.changelog-1.53.xml"
+             relativeToChangelogFile="true"/>
+
+    <include file="db.changelog-1.54.xml"
+             relativeToChangelogFile="true"/>
+
+    <include file="db.changelog-1.55.xml"
+             relativeToChangelogFile="true"/>
+
+    <include file="db.changelog-1.56.xml"
+             relativeToChangelogFile="true"/>
+
+    <include file="db.changelog-1.57.xml"
+             relativeToChangelogFile="true"/>
+
+    <include file="db.changelog-1.58.xml"
+                relativeToChangelogFile="true"/>
+
+    <include file="db.changelog-1.59.xml"
+                relativeToChangelogFile="true"/>
+
+    <include file="db.changelog-1.60.xml"
+                relativeToChangelogFile="true"/>
+
+    <include file="db.changelog-1.61.xml"
+                relativeToChangelogFile="true"/>
+
+    <include file="db.changelog-1.62.xml"
+                relativeToChangelogFile="true"/>
+
+    <include file="db.changelog-1.63.xml"
+                relativeToChangelogFile="true"/>
+
+    <include file="db.changelog-1.64.xml"
+                relativeToChangelogFile="true"/>
+
+    <include file="db.changelog-1.65.xml"
+             relativeToChangelogFile="true"/>
+
+    <include file="db.changelog-1.66.xml"
+             relativeToChangelogFile="true"/>
+
+    <include file="db.changelog-1.67.xml"
+             relativeToChangelogFile="true"/>
 </databaseChangeLog>

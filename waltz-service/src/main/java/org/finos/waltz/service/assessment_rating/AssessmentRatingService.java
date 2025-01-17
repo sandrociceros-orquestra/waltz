@@ -24,28 +24,51 @@ import org.finos.waltz.data.GenericSelector;
 import org.finos.waltz.data.GenericSelectorFactory;
 import org.finos.waltz.data.assessment_definition.AssessmentDefinitionDao;
 import org.finos.waltz.data.assessment_rating.AssessmentRatingDao;
+import org.finos.waltz.data.assessment_rating.AssessmentRatingRippler;
 import org.finos.waltz.data.rating_scheme.RatingSchemeDAO;
-import org.finos.waltz.model.*;
+import org.finos.waltz.model.Cardinality;
+import org.finos.waltz.model.EntityKind;
+import org.finos.waltz.model.EntityReference;
+import org.finos.waltz.model.IdSelectionOptions;
+import org.finos.waltz.model.NameProvider;
+import org.finos.waltz.model.Operation;
+import org.finos.waltz.model.Severity;
+import org.finos.waltz.model.UserTimestamp;
+import org.finos.waltz.model.application.AssessmentsView;
+import org.finos.waltz.model.application.ImmutableAssessmentsView;
 import org.finos.waltz.model.assessment_definition.AssessmentDefinition;
-import org.finos.waltz.model.assessment_rating.*;
+import org.finos.waltz.model.assessment_definition.AssessmentRipplerJobConfiguration;
+import org.finos.waltz.model.assessment_rating.AssessmentDefinitionRatingOperations;
+import org.finos.waltz.model.assessment_rating.AssessmentRating;
+import org.finos.waltz.model.assessment_rating.AssessmentRatingSummaryCounts;
+import org.finos.waltz.model.assessment_rating.BulkAssessmentRatingCommand;
+import org.finos.waltz.model.assessment_rating.ImmutableAssessmentRating;
+import org.finos.waltz.model.assessment_rating.RemoveAssessmentRatingCommand;
+import org.finos.waltz.model.assessment_rating.SaveAssessmentRatingCommand;
+import org.finos.waltz.model.assessment_rating.UpdateRatingCommand;
 import org.finos.waltz.model.changelog.ChangeLog;
 import org.finos.waltz.model.changelog.ImmutableChangeLog;
 import org.finos.waltz.model.rating.RatingScheme;
 import org.finos.waltz.model.rating.RatingSchemeItem;
 import org.finos.waltz.service.changelog.ChangeLogService;
 import org.finos.waltz.service.permission.permission_checker.AssessmentRatingPermissionChecker;
-import org.jooq.DSLContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static java.lang.String.format;
 import static org.finos.waltz.common.Checks.checkNotNull;
 import static org.finos.waltz.common.MapUtilities.indexBy;
 import static org.finos.waltz.common.SetUtilities.asSet;
+import static org.finos.waltz.common.SetUtilities.map;
 import static org.finos.waltz.model.EntityReference.mkRef;
+import static org.finos.waltz.model.utils.IdUtilities.toIds;
 
 @Service
 public class AssessmentRatingService {
@@ -56,6 +79,7 @@ public class AssessmentRatingService {
     private final ChangeLogService changeLogService;
     private final AssessmentRatingPermissionChecker assessmentRatingPermissionChecker;
     private final GenericSelectorFactory genericSelectorFactory = new GenericSelectorFactory();
+    private final AssessmentRatingRippler rippler;
 
 
     @Autowired
@@ -64,19 +88,22 @@ public class AssessmentRatingService {
             AssessmentDefinitionDao assessmentDefinitionDao,
             RatingSchemeDAO ratingSchemeDAO,
             ChangeLogService changeLogService,
-            AssessmentRatingPermissionChecker assessmentRatingPermissionChecker) {
+            AssessmentRatingPermissionChecker assessmentRatingPermissionChecker,
+            AssessmentRatingRippler rippler) {
 
         checkNotNull(assessmentRatingDao, "assessmentRatingDao cannot be null");
         checkNotNull(assessmentDefinitionDao, "assessmentDefinitionDao cannot be null");
         checkNotNull(ratingSchemeDAO, "ratingSchemeDao cannot be null");
         checkNotNull(assessmentRatingPermissionChecker, "ratingPermissionChecker cannot be null");
         checkNotNull(changeLogService, "changeLogService cannot be null");
+        checkNotNull(rippler, "rippler cannot be null");
 
         this.assessmentRatingPermissionChecker = assessmentRatingPermissionChecker;
         this.assessmentRatingDao = assessmentRatingDao;
         this.ratingSchemeDAO = ratingSchemeDAO;
         this.assessmentDefinitionDao = assessmentDefinitionDao;
         this.changeLogService = changeLogService;
+        this.rippler = rippler;
 
     }
 
@@ -103,6 +130,13 @@ public class AssessmentRatingService {
     }
 
 
+    public int deleteByAssessmentRatingRelatedSelector(EntityKind targetKind,
+                                                       IdSelectionOptions selectionOptions) {
+        GenericSelector genericSelector = genericSelectorFactory.applyForKind(targetKind, selectionOptions);
+        return assessmentRatingDao.deleteByGenericSelector(genericSelector);
+    }
+
+
     public List<AssessmentRating> findByDefinitionId(long definitionId) {
 
         return assessmentRatingDao.findByDefinitionId(definitionId);
@@ -112,7 +146,9 @@ public class AssessmentRatingService {
     public boolean store(SaveAssessmentRatingCommand command, String username) throws InsufficientPrivelegeException {
         verifyAnyPermission(asSet(Operation.UPDATE, Operation.ADD), command.entityReference(), command.assessmentDefinitionId(), command.ratingId(), username);
         AssessmentDefinition assessmentDefinition = assessmentDefinitionDao.getById(command.assessmentDefinitionId());
-        createChangeLogEntryForSave(command, username, assessmentDefinition);
+
+        boolean isUpdate = assessmentRatingDao.isUpdate(command);
+        createChangeLogEntryForSave(command, username, assessmentDefinition, isUpdate ? Operation.UPDATE : Operation.ADD);
 
         return assessmentRatingDao.store(command);
     }
@@ -170,6 +206,7 @@ public class AssessmentRatingService {
                         command.entityReference().id()))
                 .userId(username)
                 .childKind(command.entityReference().kind())
+                .childId(command.entityReference().id())
                 .severity(Severity.INFORMATION)
                 .operation(Operation.REMOVE)
                 .build();
@@ -311,7 +348,8 @@ public class AssessmentRatingService {
 
     private void createChangeLogEntryForSave(SaveAssessmentRatingCommand command,
                                              String username,
-                                             AssessmentDefinition assessmentDefinition) {
+                                             AssessmentDefinition assessmentDefinition,
+                                             Operation operation) {
         Optional<AssessmentRating> previousRating = assessmentRatingDao.findForEntity(command.entityReference())
                 .stream()
                 .filter(r -> r.assessmentDefinitionId() == command.assessmentDefinitionId())
@@ -333,7 +371,7 @@ public class AssessmentRatingService {
                 .parentReference(mkRef(command.entityReference().kind(), command.entityReference().id()))
                 .userId(username)
                 .severity(Severity.INFORMATION)
-                .operation(Operation.UPDATE)
+                .operation(operation)
                 .build();
 
         changeLogService.write(logEntry);
@@ -430,4 +468,45 @@ public class AssessmentRatingService {
         return assessmentRatingDao.findRatingSummaryCounts(genericSelector, definitionIds);
     }
 
+    public boolean hasMultiValuedAssessments(long assessmentDefinitionId) {
+        return assessmentRatingDao.hasMultiValuedAssessments(assessmentDefinitionId);
+    }
+
+    public Set<AssessmentRating> findBySelectorForDefinitions(GenericSelector genericSelector,
+                                                              Set<Long> defIds) {
+        return assessmentRatingDao.findBySelectorForDefinitions(genericSelector, defIds);
+    }
+
+
+    public AssessmentsView getPrimaryAssessmentsViewForKindAndSelector(EntityKind entityKind, IdSelectionOptions opts) {
+
+        Set<AssessmentDefinition> primaryAssessmentDefs = assessmentDefinitionDao
+                .findPrimaryDefinitionsForKind(
+                        EntityKind.LOGICAL_DATA_FLOW_DATA_TYPE_DECORATOR,
+                        Optional.empty());
+
+        GenericSelector selector = genericSelectorFactory.applyForKind(entityKind, opts);
+
+        Set<AssessmentRating> assessmentRatings = findBySelectorForDefinitions(
+                selector,
+                toIds(primaryAssessmentDefs));
+
+        Set<RatingSchemeItem> assessmentRatingSchemeItems = ratingSchemeDAO.findRatingSchemeItemsByIds(
+                map(assessmentRatings, AssessmentRating::ratingId));
+
+        return ImmutableAssessmentsView
+                .builder()
+                .assessmentDefinitions(primaryAssessmentDefs)
+                .assessmentRatings(assessmentRatings)
+                .ratingSchemeItems(assessmentRatingSchemeItems)
+                .build();
+    }
+
+    public Long rippleAll() {
+        return rippler.rippleAssessments();
+    }
+
+    public Set<AssessmentRipplerJobConfiguration> findRippleConfig() {
+        return rippler.findRippleConfig();
+    }
 }

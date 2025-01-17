@@ -30,24 +30,38 @@ import org.finos.waltz.model.involvement.Involvement;
 import org.finos.waltz.model.person.Person;
 import org.finos.waltz.schema.Tables;
 import org.finos.waltz.schema.tables.records.InvolvementRecord;
-import org.jooq.*;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record;
+import org.jooq.Record1;
+import org.jooq.RecordMapper;
+import org.jooq.Select;
+import org.jooq.Table;
+import org.jooq.TableField;
 import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.IntStream;
 
-import static java.util.stream.Collectors.*;
+import static java.util.stream.Collectors.collectingAndThen;
+import static java.util.stream.Collectors.groupingBy;
+import static java.util.stream.Collectors.mapping;
+import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toSet;
 import static org.finos.waltz.common.Checks.checkNotNull;
-import static org.finos.waltz.common.ListUtilities.newArrayList;
 import static org.finos.waltz.schema.Tables.CHANGE_INITIATIVE;
 import static org.finos.waltz.schema.Tables.END_USER_APPLICATION;
 import static org.finos.waltz.schema.tables.Involvement.INVOLVEMENT;
 import static org.finos.waltz.schema.tables.Person.PERSON;
 import static org.finos.waltz.schema.tables.PersonHierarchy.PERSON_HIERARCHY;
-import static org.jooq.lambda.tuple.Tuple.tuple;
 
 
 @Repository
@@ -58,8 +72,7 @@ public class InvolvementDao {
     private static final Field<String> ENTITY_NAME_FIELD = InlineSelectFieldFactory
             .mkNameField(
                     INVOLVEMENT.ENTITY_ID,
-                    INVOLVEMENT.ENTITY_KIND,
-                    newArrayList(EntityKind.values()))
+                    INVOLVEMENT.ENTITY_KIND)
             .as("entity_name");
 
     private final RecordMapper<Record, Involvement> TO_MODEL_MAPPER = r -> {
@@ -166,7 +179,8 @@ public class InvolvementDao {
 
 
     public List<Person> findPeopleByEntityReference(EntityReference ref) {
-        return dsl.selectDistinct(PERSON.fields())
+        return dsl
+                .selectDistinct(PERSON.fields())
                 .from(PERSON)
                 .innerJoin(INVOLVEMENT)
                 .on(INVOLVEMENT.ENTITY_ID.eq(ref.id()))

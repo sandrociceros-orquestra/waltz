@@ -89,19 +89,13 @@ describe("common/entity-utils", () => {
         it("makes an entity reference from a given object with an id and a given kind", () => {
             assert.equal(
                 "APPLICATION/12",
-                eu.refToString(eu.toEntityRef({id: 12}, "APPLICATION")));
+                eu.refToString(eu.toEntityRefWithKind({id: 12}, "APPLICATION")));
         });
 
         it("gives back a reference if the given object has kind and id", () => {
             assert.equal(
                 "ORG_UNIT/1",
                 eu.refToString(eu.toEntityRef(ref1ou)));
-        });
-
-        it("throws if the given object has no 'id'", () => {
-            assert.throws(() => {
-                eu.toEntityRef({name: "bob"});
-            })
         });
 
         it("preserves name and description if possible", () => {

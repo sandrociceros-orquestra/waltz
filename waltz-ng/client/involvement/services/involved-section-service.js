@@ -18,6 +18,8 @@
 
 import {mkChangeCommand} from "../involvement-utils";
 import toasts from "../../svelte-stores/toast-store";
+import {displayError} from "../../common/error-utils";
+import {toEntityRef} from "../../common/entity-utils";
 
 function service(involvementStore) {
 
@@ -26,28 +28,31 @@ function service(involvementStore) {
         return involvementStore.changeInvolvement(
             entityRef,
             mkChangeCommand("ADD", entityInvolvement.entity, entityInvolvement.involvement))
-            .then(result => {
-                if(result) {
+            .then(successful => {
+                if (successful) {
                     toasts.success("Involvement added successfully");
                 } else {
-                    toasts.warning("Failed to add involvement")
+                    toasts.warning("Involvement was not added, it may already exist");
                 }
-            });
+            })
+            .catch(e => displayError("Failed to add involvement", e));
     };
 
 
-    const removeInvolvement = (entityRef, entityInvolvement) => {
+    const removeInvolvement = (entityRef, involvementDetail) => {
 
-        return involvementStore.changeInvolvement(
-            entityRef,
-            mkChangeCommand("REMOVE", entityInvolvement.entity, entityInvolvement.involvement))
-            .then(result => {
-                if(result) {
-                    toasts.success("Involvement removed successfully");
+        return involvementStore
+            .changeInvolvement(
+                entityRef,
+                mkChangeCommand("REMOVE", toEntityRef(involvementDetail.person), involvementDetail.involvementKind.id))
+            .then(successful => {
+                if (successful) {
+                    toasts.success(`Involvement (${involvementDetail.person.displayName} / ${involvementDetail.involvementKind.name}) removed successfully`);
                 } else {
-                    toasts.warning("Failed to remove involvement")
+                    toasts.warning("Involvement was not removed, it may have already been removed");
                 }
-            });
+            })
+            .catch(e => displayError("Failed to remove involvement", e));
     };
 
 

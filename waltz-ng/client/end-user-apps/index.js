@@ -16,13 +16,17 @@
  *
  */
 
-import angular from 'angular';
-import * as endUserAppStore from './services/end-user-app-store';
-import {registerStore} from '../common/module-utils';
+import angular from "angular";
+import * as endUserAppStore from "./services/end-user-app-store";
+import {registerStore} from "../common/module-utils";
+import Routes from "./routes";
 
 export default () => {
 
-    const module = angular.module('waltz.end.user.apps', []);
+    const module = angular.module("waltz.end.user.apps", []);
+
+    module
+        .config(Routes);
 
     registerStore(module, endUserAppStore);
 

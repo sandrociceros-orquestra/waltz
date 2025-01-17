@@ -17,46 +17,62 @@
  */
 
 import _ from "lodash";
+import Component from "./Component.svelte";
+import {writable} from "svelte/store"
 
 
-const directive = function() {
-    let comp = null;
+function calcParamKeys(attrs) {
+    const propKeys = _
+        .chain(attrs)
+        .map((p, k) => ({p, k}))
+        .reject(d => d.k.startsWith("$"))
+        .value();
+    return propKeys;
+}
+
+
+function calcInitialParams(propKeys, scope) {
+    return _
+        .chain(propKeys)
+        .map(d => Object.assign(d, {v: scope.$eval(d.p)}))
+        .reduce(
+            (acc, d) => {
+                acc[d.k] = d.v;
+                return acc;
+            },
+            {})
+        .value();
+}
+
+
+const directive = function () {
     return {
         restrict: "E",
         link: (scope, elem, attrs) => {
-            const propKeys = _
-                .chain(attrs)
-                .map((p, k) => ({p, k}))
-                .reject(d => d.k.startsWith("$"))
-                .value();
-
+            const paramKeys = calcParamKeys(attrs);
+            const initialParams = calcInitialParams(paramKeys, scope);
             const component = _.get(scope, attrs.component);
 
-            const initialProps = _
-                .chain(propKeys)
-                .map(d => Object.assign(d, {v: scope.$eval(d.p)}))
-                .reduce(
-                    (acc, d) => {
-                        acc[d.k] = d.v;
-                        return acc;
-                    },
-                    {})
-                .value();
+            const props = {
+                widget: component,
+                params: writable(initialParams)
+            };
 
-            comp = new component({
+            const comp = new Component({
                 target: elem[0],
-                props: initialProps
+                props
             });
 
-            propKeys.forEach(({p, k}) => {
+            elem.on("$destroy", () => comp.$destroy());
+
+            paramKeys.forEach(({p, k}) => {
                 if (p.startsWith(".")) {
                     return; // skip
                 } else {
                     scope.$watch(
                         p,
                         (newVal, oldVal, s) => {
-                            const upd = {[k]: newVal};
-                            comp.$set(upd);
+                            props.params.update((old) => Object.assign({}, old, {[k]: newVal}))
                         });
                 }
             });
@@ -66,6 +82,5 @@ const directive = function() {
 
 
 directive.$inject=[];
-
 
 export default directive;

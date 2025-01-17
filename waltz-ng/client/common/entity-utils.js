@@ -20,6 +20,9 @@
 import _ from "lodash";
 import {checkIsEntityRef} from "./checks";
 import {CORE_API} from "./services/core-api-utils";
+import {applicationStore} from "../svelte-stores/application-store";
+import {actorStore} from "../svelte-stores/actor-store";
+import {endUserApplicationStore} from "../svelte-stores/end-user-application-store";
 
 export function sameRef(r1, r2, options = { skipChecks: false }) {
     if (! options.skipChecks) {
@@ -28,7 +31,6 @@ export function sameRef(r1, r2, options = { skipChecks: false }) {
     }
     return r1.kind === r2.kind && r1.id === r2.id;
 }
-
 
 
 export function isSameParentEntityRef(changes) {
@@ -54,32 +56,30 @@ export function stringToRef(s) {
 }
 
 
-export function toEntityRef(obj, kind = obj.kind) {
-
-    const ref = {
+export function toEntityRef(obj) {
+    return {
         id: obj.id,
-        kind,
+        kind: obj.kind,
         name: obj.name,
+        externalId: obj.externalId,
         description: obj.description,
         entityLifecycleStatus: obj.entityLifecycleStatus
     };
+}
 
-    checkIsEntityRef(ref);
 
-    return ref;
+export function toEntityRefWithKind(obj, kind) {
+    return toEntityRef(Object.assign({}, obj, {kind}));
 }
 
 
 export function mkRef(kind, id, name, description) {
-    const ref = {
+    return {
         kind,
         id,
         name,
         description
     };
-
-    checkIsEntityRef(ref);
-    return ref;
 }
 
 
@@ -97,6 +97,8 @@ function determineLoadByIdCall(kind) {
             return CORE_API.MeasurableStore.getById;
         case "APP_GROUP":
             return CORE_API.AppGroupStore.getById;
+        case "END_USER_APPLICATION":
+            return CORE_API.EndUserAppStore.getById;
         default:
             throw "Unsupported kind for loadById: " + kind;
     }
@@ -130,6 +132,7 @@ function getEntityFromData(kind, data) {
     }
 }
 
+
 export function loadEntity(serviceBroker, entityRef) {
     checkIsEntityRef(entityRef);
 
@@ -139,6 +142,20 @@ export function loadEntity(serviceBroker, entityRef) {
         .then(r => getEntityFromData(entityRef.kind, r.data));
 }
 
+
+export function loadSvelteEntity(entityRef, force = false) {
+    const id = entityRef.id;
+    switch (entityRef.kind) {
+        case "APPLICATION":
+            return applicationStore.getById(id, force);
+        case "ACTOR":
+            return actorStore.getById(id, force);
+        case "END_USER_APPLICATION":
+            return endUserApplicationStore.getById(id, force);
+        default:
+            throw "Don't know how to load entity for kind: " + entityRef.kind;
+    }
+}
 
 export function loadByExtId(serviceBroker, kind, extId) {
     try {

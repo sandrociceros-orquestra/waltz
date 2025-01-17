@@ -28,6 +28,10 @@ import FlowClassificationLegend
     from "../../../flow-classification-rule/components/svelte/FlowClassificationLegend.svelte";
 import LogicalFlowScrollPanel from "../svelte/FlowDecoratorExplorerPanel.svelte"
 import {lastViewedFlowTabKey} from "../../../user";
+import FlowDetailPanel from "../svelte/flow-detail-tab/FlowDetailPanel.svelte"
+import FlowClassificationRulesPanel
+    from "../../../flow-classification-rule/components/summary-list/FlowClassificationRulesPanel.svelte";
+import {flowDirection} from "../../../common/services/enums/flow-direction";
 
 const bindings = {
     parentEntityRef: "<",
@@ -37,7 +41,7 @@ const bindings = {
 const tabs = [
     {id: "SUMMARY", name: "Logical Flows"},
     {id: "LOGICAL_FLOW_SCROLL", name: "Logical Flows (Beta View)"},
-    {id: "PHYSICAL", name: "Physical Flow Detail"},
+    {id: "FLOW_DETAIL", name: "Flow Detail"},
     {id: "FLOW_CLASSIFICATION_RULES", name: "Flow Classification Rules"}
 ];
 
@@ -48,8 +52,10 @@ const modes = {
 }
 
 const initialState = {
+    FlowDetailPanel,
     FlowClassificationLegend,
     LogicalFlowScrollPanel,
+    FlowClassificationRulesPanel,
     activeTab: null,
     changeUnits: [],
     dataTypeUsages: [],
@@ -66,6 +72,7 @@ const initialState = {
             bulkLogicalFlows: false,
             bulkPhysicalFlows: false
         },
+        ratingDirection: flowDirection.OUTBOUND.key
     },
     tabs,
     activeMode: modes.VIEW,
@@ -133,8 +140,8 @@ function controller(serviceBroker) {
 
         serviceBroker
             .loadViewData(
-                CORE_API.FlowClassificationRuleStore.findByApp,
-                [ vm.parentEntityRef.id ], {force: true})
+                CORE_API.FlowClassificationRuleStore.view,
+                [ mkSelectionOptions(vm.parentEntityRef) ], {force: true})
             .then(r => {
                 vm.flowClassificationRules = r.data;
             });
@@ -181,6 +188,14 @@ function controller(serviceBroker) {
 
     vm.bulkLoad = () => {
         vm.activeMode = modes.BULK;
+    }
+
+    vm.onToggleRatingDirection = () => {
+        if(vm.visibility.ratingDirection === flowDirection.OUTBOUND.key) {
+            vm.visibility.ratingDirection = flowDirection.INBOUND.key;
+        } else {
+            vm.visibility.ratingDirection = flowDirection.OUTBOUND.key;
+        }
     }
 
 }

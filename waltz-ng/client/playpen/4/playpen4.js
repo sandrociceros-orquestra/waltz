@@ -20,12 +20,11 @@ import template from "./playpen4.html";
 
 
 const initialState = {
-    parentEntityRef: { kind: "ORG_UNIT", id: 2216 }, //10524
 };
 
 
 function controller($q, serviceBroker) {
-    initialiseData(this, initialState);
+    const vm = initialiseData(this, initialState);
 }
 
 

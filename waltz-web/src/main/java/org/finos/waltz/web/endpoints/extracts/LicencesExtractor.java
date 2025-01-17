@@ -22,7 +22,12 @@ import org.finos.waltz.data.application.ApplicationIdSelectorFactory;
 import org.finos.waltz.model.EntityReference;
 import org.finos.waltz.model.IdSelectionOptions;
 import org.finos.waltz.web.WebUtilities;
-import org.jooq.*;
+import org.jooq.DSLContext;
+import org.jooq.Record1;
+import org.jooq.Record7;
+import org.jooq.Record8;
+import org.jooq.Select;
+import org.jooq.SelectConditionStep;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -57,13 +62,12 @@ public class LicencesExtractor extends DirectQueryBasedDataExtractor {
             IdSelectionOptions selectionOptions = mkOpts(entityRef);
             Select<Record1<Long>> appIdSelector = applicationIdSelectorFactory.apply(selectionOptions);
 
-            SelectConditionStep<Record8<Long, String, String, String, String, Timestamp, String, String>> qry = dsl
+            SelectConditionStep<Record7<Long, String, String, String, Timestamp, String, String>> qry = dsl
                     .selectDistinct(
                             LICENCE.ID.as("Licence Id"),
                             LICENCE.NAME.as("Licence Name"),
                             LICENCE.DESCRIPTION.as("Description"),
                             LICENCE.EXTERNAL_ID.as("External Id"),
-                            LICENCE.APPROVAL_STATUS.as("Approval Status"),
                             LICENCE.LAST_UPDATED_AT.as("Last Updated At"),
                             LICENCE.LAST_UPDATED_BY.as("Last Updated By"),
                             LICENCE.PROVENANCE.as("Provenance"))

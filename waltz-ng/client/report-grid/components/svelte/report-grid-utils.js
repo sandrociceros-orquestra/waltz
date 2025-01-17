@@ -5,7 +5,6 @@ import {amberBg, blueBg, determineForegroundColor, greenBg, greyBg, pinkBg} from
 import {scaleLinear} from "d3-scale";
 import {extent} from "d3-array";
 import {subtractYears} from "../../../common/date-utils";
-import {entity} from "../../../common/services/enums/entity";
 
 
 export const reportGridMember = {
@@ -52,8 +51,28 @@ export const additionalColumnOptions = {
         key: "ROLLUP",
         name: "Rollup",
 
+    },
+    COMPLETED_AND_APPROVED_ONLY: {
+        key: "COMPLETED_AND_APPROVED_ONLY",
+        name: "Completed and Approved Only",
+    },
+    EXCLUDE_WITHDRAWN: {
+        key: "EXCLUDE_WITHDRAWN",
+        name: "Exclude Withdrawn",
+    },
+    PRIMARY: {
+        key: "PRIMARY",
+        name: "Primary",
+    },
+    VALUES_ONLY: {
+        key: "VALUES_ONLY",
+        name: "Values Only",
+    },
+    VALUES_AND_OUTCOMES: {
+        key: "VALUES_AND_OUTCOMES",
+        name: "Values and Outcomes",
     }
-};
+}
 
 
 export function determineDefaultColumnOptions(columnEntityKind) {
@@ -75,12 +94,18 @@ const nameCol = mkEntityLinkGridCell(
     "right",
     {pinnedLeft: true, width: 200});
 
+
 const extIdCol = {
     field: "subject.entityReference.externalId",
     displayName: "Ext. Id",
     width: 100,
-    pinnedLeft: true
+    pinnedLeft: true,
+    cellTemplate: `
+        <div class="waltz-grid-report-cell">
+            <div class="report-grid-cell-text" ng-bind="COL_FIELD"></div>
+        </div>`
 };
+
 
 const lifecyclePhaseCol = {
     field: "subject.lifecyclePhase",
@@ -88,8 +113,8 @@ const lifecyclePhaseCol = {
     width: 100,
     pinnedLeft: true,
     cellTemplate: `
-        <div class="waltz-grid-report-cell"
-            <span ng-bind="COL_FIELD | toDisplayName:'lifecyclePhase'"></span>
+        <div class="waltz-grid-report-cell">
+            <div class="report-grid-cell-text" ng-bind="COL_FIELD | toDisplayName:'lifecyclePhase'"></div>
         </div>`
 };
 
@@ -103,6 +128,7 @@ const unknownRating = {
     position: 0
 };
 
+
 function getFixedColumnName(column) {
     let entityFieldName = _.get(column, ["entityFieldReference", "displayName"], null);
 
@@ -115,6 +141,7 @@ function getFixedColumnName(column) {
         .value();
 }
 
+
 export function getColumnName(column) {
     switch (column.kind) {
         case "REPORT_GRID_FIXED_COLUMN_DEFINITION":
@@ -124,6 +151,7 @@ export function getColumnName(column) {
             throw `Cannot determine name for unknown column kind: ${column.kind}`;
     }
 }
+
 
 export function getDisplayNameForColumn(c) {
     if (c.displayName != null) {
@@ -147,7 +175,9 @@ export function prepareColumnDefs(colDefs) {
                              ng-style="{
                                 'background-color': COL_FIELD.color,
                                 'color': COL_FIELD.fontColor}">
-                                <waltz-currency-amount amount="COL_FIELD.value"></waltz-currency-amount>
+                                <div class="report-grid-cell-text">
+                                    <waltz-currency-amount amount="COL_FIELD.value"></waltz-currency-amount>
+                                </div>
                         </div>`
                 };
             case "COMPLEXITY_KIND":
@@ -156,10 +186,38 @@ export function prepareColumnDefs(colDefs) {
                     cellTemplate: `
                         <div class="waltz-grid-report-cell"
                              style="text-align: right"
-                             ng-bind="COL_FIELD.value"
                              ng-style="{
                                 'background-color': COL_FIELD.color,
                                 'color': COL_FIELD.fontColor}">
+                                 <div class="report-grid-cell-text"
+                                      ng-bind="COL_FIELD.value"/>
+                                 </div>
+                        </div>`
+                };
+            case "ASSESSMENT_DEFINITION":
+            case "MEASURABLE":
+                return {
+                    allowSummary: true,
+                    toSearchTerm: d => _.get(d, [c.gridColumnId, "text"], ""),
+                    cellTemplate:
+                        `<div
+                              uib-popover-html="grid.appScope.markdownToHtml(COL_FIELD.comment)"
+                              popover-trigger="mouseenter"
+                              popover-enable="COL_FIELD.comment != null"
+                              popover-popup-delay="500"
+                              popover-class="waltz-popover-width-500"
+                              popover-append-to-body="true"
+                              popover-placement="left"
+                              ng-style="{
+                                'border-bottom-right-radius': COL_FIELD.comment ? '15% 50%' : 0,
+                                'background': COL_FIELD.color,
+                                'color': COL_FIELD.fontColor}">
+                                <div class="waltz-grid-report-cell">
+                                    <div ng-bind="COL_FIELD.text"
+                                         class="report-grid-cell-text"
+                                         style="background: linear-gradient(to top, rgba(255, 255, 255, 0.7) 0, rgba(255, 255, 255, 0.7) 90%, rgba(255, 255, 255, 0) 90%, rgba(255, 255, 255, 0) 100%)">
+                                    </div>
+                                </div>
                         </div>`
                 };
             default:
@@ -167,8 +225,7 @@ export function prepareColumnDefs(colDefs) {
                     allowSummary: true,
                     toSearchTerm: d => _.get(d, [c.gridColumnId, "text"], ""),
                     cellTemplate:
-                        `<div class="waltz-grid-report-cell"
-                              ng-bind="COL_FIELD.text"
+                        `<div
                               uib-popover-html="COL_FIELD.comment"
                               popover-trigger="mouseenter"
                               popover-enable="COL_FIELD.comment != null"
@@ -178,8 +235,13 @@ export function prepareColumnDefs(colDefs) {
                               popover-placement="left"
                               ng-style="{
                                 'border-bottom-right-radius': COL_FIELD.comment ? '15% 50%' : 0,
-                                'background-color': COL_FIELD.color,
+                                'background': COL_FIELD.color,
                                 'color': COL_FIELD.fontColor}">
+                                <div class="waltz-grid-report-cell">
+                                        <div class="report-grid-cell-text"
+                                             ng-bind="COL_FIELD.text">
+                                        </div>
+                                </div>
                         </div>`
                 };
         }
@@ -205,26 +267,6 @@ export function prepareColumnDefs(colDefs) {
 }
 
 
-function mkPopoverHtml(cellData, ratingSchemeItem) {
-    const comment = cellData.comment;
-    if (_.isEmpty(comment)) {
-        return "";
-    } else {
-        const ratingDesc = ratingSchemeItem.description === ratingSchemeItem.name
-            ? ""
-            : `<div class='help-block'>${ratingSchemeItem.description}</div>`;
-
-        return `
-            <div class='small'>
-                <label>Comment:</label> ${cellData.comment}
-                <hr>
-                <label>Rating:</label> ${ratingSchemeItem.name}
-                ${ratingDesc}
-            </div>`;
-    }
-}
-
-
 function determineDataTypeUsageColor(usageKind) {
     switch (usageKind) {
         case "CONSUMER":
@@ -247,17 +289,18 @@ function determineDataTypeUsageColor(usageKind) {
  * @param gridData
  * @returns {*}
  */
-function calculateCostColorScales(gridData) {
-    return calculateColorScales(gridData, "COST_KIND", "#e2f5ff", "#86e4ff");
+function calculateCostColorScales(cellData, columnDefs) {
+    return calculateColorScales(cellData, columnDefs, "COST_KIND", "#e2f5ff", "#86e4ff");
 }
+
 
 /**
  * Returns a map of color scales keyed by their column id's
  * @param gridData
  * @returns {*}
  */
-function calculateComplexityColorScales(gridData) {
-    return calculateColorScales(gridData, "COMPLEXITY_KIND", "#e2efff", "#77baff");
+function calculateComplexityColorScales(cellData, columnDefs) {
+    return calculateColorScales(cellData, columnDefs, "COMPLEXITY_KIND", "#e2efff", "#77baff");
 }
 
 
@@ -269,16 +312,16 @@ function calculateComplexityColorScales(gridData) {
  * @param endColor
  * @returns {*}
  */
-function calculateColorScales(gridData, entityKind, startColor, endColor) {
+function calculateColorScales(cellData, columnDefs, entityKind, startColor, endColor) {
     const cols = _
-        .chain(gridData)
-        .get(["definition", "fixedColumnDefinitions"], [])
+        .chain(columnDefs)
+        .filter(cd => cd.kind === "REPORT_GRID_FIXED_COLUMN_DEFINITION")
         .filter(cd => cd.columnEntityKind === entityKind)
         .map(cd => cd.gridColumnId)
         .value();
 
     return _
-        .chain(gridData.instance.cellData)
+        .chain(cellData)
         .filter(d => _.includes(cols, d.columnDefinitionId))
         .groupBy(d => d.columnDefinitionId)
         .mapValues(v => scaleLinear()
@@ -286,6 +329,7 @@ function calculateColorScales(gridData, entityKind, startColor, endColor) {
             .range([startColor, endColor]))
         .value();
 }
+
 
 const attestationColorScale = scaleLinear()
     .domain([subtractYears(1), new Date()])
@@ -329,9 +373,47 @@ function mkAttestationCell(dataCell, baseCell) {
 }
 
 
-export function combineColDefs(gridData) {
-    const fixedColDefs = _.get(gridData, ["definition", "fixedColumnDefinitions"], []);
-    const derivedColDefs = _.get(gridData, ["definition", "derivedColumnDefinitions"], []);
+function mkRatingCell(dataCell, baseCell, ratingSchemeItemsById) {
+
+    const ratingSchemeItems = _
+        .chain(dataCell.ratingIdValues)
+        .map(d => ratingSchemeItemsById[d])
+        .sortBy(d => d.name)
+        .value();
+
+    const colorBandWidth = 100 / _.size(ratingSchemeItems);
+
+    const colorBands = _.map(
+        ratingSchemeItems,
+        d => {
+            const idx = _.indexOf(ratingSchemeItems, d);
+            return `${d.color} ${colorBandWidth * idx}% ${colorBandWidth * (idx + 1)}%`;
+        });
+
+    const background = `linear-gradient(to right,  ${_.join(colorBands, ",")})`;
+    const options = _.map(
+        dataCell.options,
+        d => {
+            const rating = ratingSchemeItemsById[Number(d.code)];
+            return Object.assign({}, d, {name: d.text, code: d.code, color: rating.color, fontColor: "black"})
+        });
+
+    return Object.assign(
+        {},
+        baseCell,
+        {
+            comment: dataCell.comment,
+            color: background,
+            fontColor: "black",
+            text: dataCell.textValue,
+            options
+        });
+}
+
+
+export function combineColDefs(definition) {
+    const fixedColDefs = _.get(definition, ["fixedColumnDefinitions"], []);
+    const derivedColDefs = _.get(definition, ["derivedColumnDefinitions"], []);
 
     return _.orderBy(
         _.concat(fixedColDefs, derivedColDefs),
@@ -339,10 +421,14 @@ export function combineColDefs(gridData) {
 }
 
 
-export function prepareTableData(gridData) {
+export function prepareData(instance, columnDefs) {
+
+    if (_.isEmpty(columnDefs)) {
+        return [];
+    }
 
     const ratingSchemeItemsById = _
-        .chain(gridData.instance.ratingSchemeItems)
+        .chain(instance.ratingSchemeItems)
         .map(d => {
             const c = rgb(d.color);
             return Object.assign({}, d, {fontColor: determineForegroundColor(c.r, c.g, c.b)})
@@ -350,19 +436,24 @@ export function prepareTableData(gridData) {
         .keyBy(d => d.id)
         .value();
 
-    const colDefs = combineColDefs(gridData);
-    const colsById = _.keyBy(colDefs, cd => cd.gridColumnId);
+    const colsById = _.keyBy(columnDefs, cd => cd.gridColumnId);
 
-    const costColorScalesByColumnDefinitionId = calculateCostColorScales(gridData);
-    const complexityColorScalesByColumnDefinitionId = calculateComplexityColorScales(gridData);
+    const costColorScalesByColumnDefinitionId = calculateCostColorScales(instance.cellData, columnDefs);
+    const complexityColorScalesByColumnDefinitionId = calculateComplexityColorScales(instance.cellData, columnDefs);
 
     function mkTableCell(dataCell) {
+
         const colDef = _.get(colsById, [dataCell.columnDefinitionId]);
+
+        if (_.isNil(colDef)) {
+            return null;
+        }
 
         const baseCell = {
             fontColor: "#3b3b3b",
             optionCode: dataCell.optionCode,
-            optionText: dataCell.optionText
+            optionText: dataCell.optionText,
+            options: dataCell.options
         };
 
         switch (colDef.columnEntityKind) {
@@ -406,13 +497,7 @@ export function prepareTableData(gridData) {
                 });
             case "ASSESSMENT_DEFINITION":
             case "MEASURABLE":
-                const ratingSchemeItem = ratingSchemeItemsById[dataCell.ratingIdValue];
-                return Object.assign({}, baseCell, {
-                    comment: mkPopoverHtml(dataCell, ratingSchemeItem),
-                    color: ratingSchemeItem.color,
-                    fontColor: ratingSchemeItem.fontColor,
-                    text: ratingSchemeItem.name,
-                });
+                return mkRatingCell(dataCell, baseCell, ratingSchemeItemsById);
             case "REPORT_GRID_DERIVED_COLUMN_DEFINITION":
                 return Object.assign({}, baseCell, {
                     comment: dataCell.errorValue
@@ -434,11 +519,11 @@ export function prepareTableData(gridData) {
     }
 
     const cellsBySubjectId = _.groupBy(
-        gridData.instance.cellData,
+        instance.cellData,
         d => d.subjectId);
 
     const emptyRow = _.reduce(
-        colDefs,
+        columnDefs,
         (acc, c) => {
             acc[c.gridColumnId] = unknownRating;
             return acc;
@@ -446,13 +531,17 @@ export function prepareTableData(gridData) {
         {});
 
     return _
-        .chain(gridData.instance.subjects)
+        .chain(instance.subjects)
         .map(s => {
             const rowCells = _.reduce(
                 _.get(cellsBySubjectId, [s.entityReference.id], []),
                 (acc, cell) => {
-                    acc[cell.columnDefinitionId] = mkTableCell(cell);
+                    const tableCell = mkTableCell(cell);
+                    if (!_.isNil(tableCell)) {
+                        acc[cell.columnDefinitionId] = tableCell;
+                    }
                     return acc;
+
                 },
                 {});
 
@@ -480,16 +569,26 @@ function isSummarisableProperty(k) {
 }
 
 
+function countDistinct(optionSummaries, mapper) {
+    return _.chain(optionSummaries)
+        .flatMap(mapper)
+        .uniq()
+        .size()
+        .value();
+}
+
+
 export function refreshSummaries(tableData,
                                  columnDefinitions) {
 
     // increments a pair of counters referenced by `prop` in the object `acc`
-    const accInc = (acc, prop, visible, optionInfo) => {
+    const accInc = (acc, prop, visible, optionInfo, subjectId) => {
         const info = _.get(acc, prop, {counts: {visible: 0, total: 0}, optionInfo});
         info.counts.total++;
         if (visible) {
             info.counts.visible++;
         }
+
         acc[prop] = info;
     };
 
@@ -497,13 +596,39 @@ export function refreshSummaries(tableData,
     const reducer = (acc, row) => {
         _.forEach(
             row,
-            (v, k) => isSummarisableProperty(k)
-                ? accInc(
-                    acc,
-                    k + "#" + v.optionCode,
-                    _.get(row, ["visible"], true),
-                    {name: v.optionText, code: v.optionCode, color: v.color, fontColor: v.fontColor})
-                : acc);
+            (v, k) => {
+
+                if (!isSummarisableProperty(k)) {
+                    return;
+                }
+
+                const visible = _.get(row, ["visible"], true);
+                const subjectId = _.get(row, ["subject", "entityReference", "id"]);
+
+                if (_.isEmpty(v.options)) {
+                    accInc(
+                        acc,
+                        k + "#undefined",
+                        visible,
+                        {color: v.color},
+                        subjectId);
+                    return acc;
+                } else {
+                    _.forEach(
+                        v.options,
+                        d => accInc(
+                            acc,
+                            k + "#" + d.code,
+                            visible,
+                            {
+                                name: d.text,
+                                code: d.code,
+                                color: d.color || v.color,
+                                fontColor: v.fontColor
+                            },
+                            subjectId));
+                }
+            });
         return acc;
     };
 
@@ -513,6 +638,7 @@ export function refreshSummaries(tableData,
         .chain(tableData)
         .reduce(reducer, {})  // transform into a raw summary object for all rows
         .map((optionSummary, k) => { // convert basic prop-val/count pairs in the summary object into a list of enriched objects
+
             const [columnDefinitionId, ratingId] = _.split(k, "#");
             return Object.assign(
                 {},
@@ -530,8 +656,8 @@ export function refreshSummaries(tableData,
                 [
                     c => c.optionInfo.name
                 ]),
-            total: _.sumBy(optionSummaries, c => c.counts.total),
-            totalVisible: _.sumBy(optionSummaries, c => c.counts.visible)
+            totalOccurrences: _.sumBy(optionSummaries, c => c.counts.total),
+            visibleOccurrences: _.sumBy(optionSummaries, c => c.counts.visible),
         }))
         .orderBy([  // order the summaries so they reflect the column order
             d => d.column?.position,
@@ -559,10 +685,14 @@ export function mkRowFilter(filters = []) {
     return row => _.every(
         filtersByColumnDefinitionId,
         (filtersForCol, colId) => {
-            const colOptionCode = _.get(row, [colId, "optionCode"], undefined);
-            return _.some(
-                filtersForCol,
-                f => colOptionCode === f.optionCode);
+
+
+            const colOptions = _.get(row, [colId, "options"], []);
+            const optionCodes = _.map(colOptions, d => d.code);
+            const hasNotProvidedFilter = _.some(filtersForCol, d => _.isUndefined(d.optionCode));
+
+            return (_.isEmpty(colOptions) && hasNotProvidedFilter)
+                || _.some(filtersForCol, f => _.includes(optionCodes, f.optionCode));
         });
 }
 
@@ -585,6 +715,7 @@ function sameFixedColumnRefs(v1, v2) {
         && qualiId1 === qualiId2;
 }
 
+
 function sameDerivedColumnRefs(v1, v2) {
 
     const name1 = _.get(v1, ["displayName"], null);
@@ -592,6 +723,7 @@ function sameDerivedColumnRefs(v1, v2) {
 
     return name1 === name2;
 }
+
 
 export function sameColumnRef(v1, v2) {
     if (!v1 || !v2) return false;
@@ -614,6 +746,7 @@ export function mkLocalStorageFilterKey(gridId) {
     return `waltz-report-grid-${gridId}-active-summaries`
 }
 
+
 export function mkReportGridFixedColumnRef(d, nameProvider = "name") {
     return Object.assign(
         {},
@@ -631,9 +764,14 @@ export function mkReportGridFixedColumnRef(d, nameProvider = "name") {
  *
  * @param fieldRef
  * @param entity - taken from entity.js
+ * @param qualifierEntity - a qualifier if the column entity is ambiguous e.g. for measurables specify the category
  * @returns {{entityFieldReference, columnEntityKind, kind: string, displayName: null, columnEntityId: null, columnName}}
  */
-export function mkReportGridEntityFieldReferenceColumnRef(fieldRef, entity) {
+export function mkReportGridEntityFieldReferenceColumnRef(fieldRef,
+                                                          entity,
+                                                          qualifierEntity,
+                                                          displayName = null,
+                                                          additionalColOpts = additionalColumnOptions.NONE) {
     return Object.assign(
         {},
         {
@@ -642,7 +780,10 @@ export function mkReportGridEntityFieldReferenceColumnRef(fieldRef, entity) {
             columnEntityKind: entity.key,
             entityFieldReference: fieldRef,
             columnName: entity.name,
-            displayName: null
+            columnQualifierKind: qualifierEntity ? qualifierEntity.kind : null,
+            columnQualifierId: qualifierEntity ? qualifierEntity.id : null,
+            displayName: displayName,
+            additionalColumnOptions: additionalColOpts.key
         });
 }
 
@@ -658,6 +799,23 @@ export function mkMeasurableColumn(selectedCategory, measurable) {
             columnQualifierKind: "MEASURABLE",
             columnQualifierId: measurable.id,
             columnName: `${selectedCategory.name}/${measurable.name}`,
+            displayName: null
+        });
+}
+
+
+export function mkMeasurableCategoryColumn(selectedCategory) {
+    return Object.assign(
+        {},
+        {
+            kind: "REPORT_GRID_FIXED_COLUMN_DEFINITION",
+            columnEntityId: selectedCategory.id,
+            columnEntityKind: "MEASURABLE_CATEGORY",
+            additionalColumnOptions: additionalColumnOptions.NONE.key,
+            entityFieldReference: null,
+            columnQualifierKind: null,
+            columnQualifierId: null,
+            columnName: `${selectedCategory.name}`,
             displayName: null
         });
 }

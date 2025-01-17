@@ -13,12 +13,12 @@ Learn more
 Getting started
  - [Building](docs/development/build.md) 
  - [Running](waltz-web/README.md)
- - [Docker](docker/DOCKER.md)
+ - [Docker](docker/README.md)
 
 ---
+[![FINOS Hosted Platform - Waltz Demo](https://img.shields.io/badge/FINOS%20Hosted%20Platform-Waltz%20Demo-blue)](https://demo.waltz.finos.org/)
 [![postgres build](https://github.com/finos/waltz/actions/workflows/maven.yml/badge.svg)](https://github.com/finos/waltz/actions)
-[![Language Grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/khartec/waltz.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/khartec/waltz/context:javascript) 
-[![Language Grade: Java](https://img.shields.io/lgtm/grade/java/g/khartec/waltz.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/khartec/waltz/context:java)
+[![Latest Version](https://badgers.space/github/release/finos/waltz)](https://github.com/finos/waltz/releases)
 [![FINOS - Active](https://cdn.jsdelivr.net/gh/finos/contrib-toolbox@master/images/badge-active.svg)](https://finosfoundation.atlassian.net/wiki/display/FINOS/Active)
 
 ## Corporate Contributors
@@ -42,15 +42,15 @@ See [pom.xml](https://github.com/finos/waltz/blob/master/pom.xml) for a full lis
 
 ### Supported Databases
 
-- Postgres 
-- Microsoft SQL Server (2012+)  
-  - requires [JOOQ Pro license](https://www.jooq.org/download/) to build from source
+- Postgres
+- Microsoft SQL Server (2017+)
+    - requires [JOOQ Pro license](https://www.jooq.org/download/) to build from source
 
 
 ### Client
 
 - Browser based
-    - IE 11+, Chrome, Safari, Firefox)
+    - Chrome, Safari, Firefox, Edge
 - AngularJS 1.7
 - Svelte
 - Bootstrap 3
@@ -66,11 +66,14 @@ progress and done issues.
 
 **Provisional** dates for upcoming releases:
 
-| Release  | Date            | Summary                    |
-|----------|-----------------|----------------------------|
-| **1.48** | 28th March 2023 | Legal Entities (continued) |
-| 1.49     | 30th May 2023   | tbd                        |
-| 1.50     | tbd             | tbd                        |
+| Release | Date     | Provisional Change Summary   |
+|---------|----------|------------------------------|
+| 1.66    | Nov 2024   | AGF Survey Changes and Fixes | 
+| 1.67    | Dec 2024 | TBC                          | 
+
+See the [releases](https://github.com/finos/waltz/releases) page for historic versions.
+
+
 
 ## Contributing
 
@@ -95,7 +98,7 @@ Individual and organisational contributors are listed in [the contributors file]
 
 ## License
 
-Copyright (C) 2021 Waltz open source project
+Copyright (C) 2024 Waltz open source project
 
 Distributed under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0).
 

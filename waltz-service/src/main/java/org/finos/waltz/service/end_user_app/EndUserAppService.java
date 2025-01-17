@@ -23,8 +23,10 @@ import org.finos.waltz.data.application.ApplicationDao;
 import org.finos.waltz.data.changelog.ChangeLogDao;
 import org.finos.waltz.data.end_user_app.EndUserAppDao;
 import org.finos.waltz.data.end_user_app.EndUserAppIdSelectorFactory;
+import org.finos.waltz.data.end_user_app.search.EndUserAppSearchDao;
 import org.finos.waltz.data.involvement.InvolvementDao;
 import org.finos.waltz.data.orgunit.OrganisationalUnitIdSelectorFactory;
+import org.finos.waltz.model.Criticality;
 import org.finos.waltz.model.EntityKind;
 import org.finos.waltz.model.IdSelectionOptions;
 import org.finos.waltz.model.Operation;
@@ -37,6 +39,7 @@ import org.finos.waltz.model.changelog.ChangeLog;
 import org.finos.waltz.model.changelog.ChangeLogComment;
 import org.finos.waltz.model.changelog.ImmutableChangeLog;
 import org.finos.waltz.model.enduserapp.EndUserApplication;
+import org.finos.waltz.model.entity_search.EntitySearchOptions;
 import org.finos.waltz.model.involvement.ImmutableInvolvement;
 import org.finos.waltz.model.involvement.Involvement;
 import org.finos.waltz.model.rating.RagRating;
@@ -48,10 +51,10 @@ import org.springframework.stereotype.Service;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 import static java.lang.String.format;
 import static org.finos.waltz.common.Checks.checkNotNull;
-import static org.finos.waltz.common.FunctionUtilities.time;
 import static org.finos.waltz.common.ListUtilities.map;
 import static org.finos.waltz.model.EntityKind.APPLICATION;
 import static org.finos.waltz.model.EntityReference.mkRef;
@@ -63,6 +66,7 @@ public class EndUserAppService {
     private final ApplicationDao applicationDao;
     private final ChangeLogDao changeLogDao;
     private final InvolvementDao involvementDao;
+    private final EndUserAppSearchDao endUserAppSearchDao;
     private final EndUserAppIdSelectorFactory endUserAppIdSelectorFactory = new EndUserAppIdSelectorFactory();
     private final OrganisationalUnitIdSelectorFactory orgUnitIdSelectorFactory= new OrganisationalUnitIdSelectorFactory();
 
@@ -71,15 +75,18 @@ public class EndUserAppService {
     public EndUserAppService(EndUserAppDao endUserAppDao,
                              ApplicationDao applicationDao,
                              ChangeLogDao changeLogDao,
-                             InvolvementDao involvementDao) {
+                             InvolvementDao involvementDao,
+                             EndUserAppSearchDao endUserAppSearchDao) {
         checkNotNull(endUserAppDao, "EndUserAppDao is required");
         checkNotNull(applicationDao, "ApplicationDao is required");
         checkNotNull(changeLogDao, "ChangeLogDao is required");
         checkNotNull(involvementDao, "InvolvementDao is required");
+        checkNotNull(endUserAppSearchDao, "EndUserAppSearchDao is required");
         this.endUserAppDao = endUserAppDao;
         this.applicationDao = applicationDao;
         this.changeLogDao = changeLogDao;
         this.involvementDao = involvementDao;
+        this.endUserAppSearchDao = endUserAppSearchDao;
     }
 
 
@@ -87,19 +94,19 @@ public class EndUserAppService {
     public List<EndUserApplication> findByOrganisationalUnitSelector(IdSelectionOptions options) {
         checkNotNull(options, "options cannot be null");
         Select<Record1<Long>> selector = orgUnitIdSelectorFactory.apply(options);
-        return time("EUAS.findByOrganisationalUnitSelector", () -> endUserAppDao.findByOrganisationalUnitSelector(selector));
+        return endUserAppDao.findByOrganisationalUnitSelector(selector);
     }
 
 
     public Collection<Tally<Long>> countByOrgUnitId() {
-        return time("EUAS.countByOrgUnitId", () -> endUserAppDao.countByOrganisationalUnit());
+        return endUserAppDao.countByOrganisationalUnit();
     }
 
 
     public List<EndUserApplication> findBySelector(IdSelectionOptions options) {
         checkNotNull(options, "options cannot be null");
         Select<Record1<Long>> selector = endUserAppIdSelectorFactory.apply(options);
-        return time("EUAS.findBySelector", () -> endUserAppDao.findBySelector(selector));
+        return endUserAppDao.findBySelector(selector);
     }
 
     public EndUserApplication getById(Long id) {
@@ -124,7 +131,7 @@ public class EndUserAppService {
 
         migrateEudaInvolvements(id, appRegistrationResponse);
 
-        changeLogDao.write(mkChangeLog(appRegistrationResponse, comment, username));
+        changeLogDao.write(Optional.empty(), mkChangeLog(appRegistrationResponse, comment, username));
 
         return appRegistrationResponse;
     }
@@ -177,7 +184,7 @@ public class EndUserAppService {
                     .name(euda.name())
                     .applicationKind(ApplicationKind.EUC)
                     .assetCode(String.valueOf(euda.id().get()))
-                    .businessCriticality(euda.riskRating())
+                    .businessCriticality(Criticality.valueOf(euda.riskRating().value()))
                     .description(euda.description() + "<br>["+ euda.applicationKind() + "]")
                     .lifecyclePhase(euda.lifecyclePhase())
                     .organisationalUnitId(euda.organisationalUnitId())
@@ -189,4 +196,7 @@ public class EndUserAppService {
         }
     }
 
+    public Collection<EndUserApplication> search(EntitySearchOptions options) {
+        return endUserAppSearchDao.search(options);
+    }
 }

@@ -18,6 +18,9 @@
 
 package org.finos.waltz.service.measurable_rating_planned_decommission;
 
+import org.finos.waltz.data.GenericSelector;
+import org.finos.waltz.model.measurable_rating.MeasurableRating;
+import org.finos.waltz.model.measurable_rating_planned_decommission.MeasurableRatingPlannedDecommissionInfo;
 import org.finos.waltz.service.changelog.ChangeLogService;
 import org.finos.waltz.service.measurable_rating.MeasurableRatingService;
 import org.finos.waltz.common.exception.UpdateFailedException;
@@ -28,6 +31,8 @@ import org.finos.waltz.model.EntityReference;
 import org.finos.waltz.model.Operation;
 import org.finos.waltz.model.command.DateFieldChange;
 import org.finos.waltz.model.measurable_rating_planned_decommission.MeasurableRatingPlannedDecommission;
+import org.jooq.Record1;
+import org.jooq.Select;
 import org.jooq.lambda.tuple.Tuple2;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -69,18 +74,38 @@ public class MeasurableRatingPlannedDecommissionService {
     }
 
 
-    public Collection<MeasurableRatingPlannedDecommission> findForReplacingEntityRef(EntityReference ref) {
+    /*
+     * Should move to using a measurable rating id selector
+     */
+    @Deprecated
+    public Collection<MeasurableRatingPlannedDecommission> findForCategoryAndSubjectIdSelector(Select<Record1<Long>> subjectIdSelector, long categoryId) {
+        return measurableRatingPlannedDecommissionDao.findForCategoryAndSelector(subjectIdSelector, categoryId);
+    }
+
+
+   public Collection<MeasurableRatingPlannedDecommission> findForCategoryAndMeasurableRatingIdSelector(Select<Record1<Long>> ratingIdSelector, long categoryId) {
+        return measurableRatingPlannedDecommissionDao.findForCategoryAndMeasurableRatingIdSelector(ratingIdSelector, categoryId);
+    }
+
+
+    public Collection<MeasurableRatingPlannedDecommissionInfo> findForReplacingEntityRef(EntityReference ref) {
         return measurableRatingPlannedDecommissionDao.findByReplacingEntityRef(ref);
     }
 
 
-    public MeasurableRatingPlannedDecommission save(EntityReference entityReference,
-                                                    long measurableId,
+    public Collection<MeasurableRatingPlannedDecommissionInfo> findForReplacingSubjectIdSelectorAndCategory(GenericSelector subjectIdSelector, long categoryId) {
+        return measurableRatingPlannedDecommissionDao.findForReplacingSubjectIdSelectorAndCategory(subjectIdSelector, categoryId);
+    }
+
+
+    public MeasurableRatingPlannedDecommission save(long measurableRatingId,
                                                     DateFieldChange dateChange,
                                                     String userName) {
+
+        MeasurableRating rating = measurableRatingService.getById(measurableRatingId);
+
         Tuple2<Operation, Boolean> operation = measurableRatingPlannedDecommissionDao.save(
-                entityReference,
-                measurableId,
+                measurableRatingId,
                 dateChange,
                 userName);
 
@@ -88,11 +113,11 @@ public class MeasurableRatingPlannedDecommissionService {
             throw new UpdateFailedException(
                     "DECOM_DATE_SAVE_FAILED",
                     format("Failed to store date change for entity %s:%d and measurable %d",
-                            entityReference.kind(),
-                            entityReference.id(),
-                            measurableId));
+                            rating.entityReference().kind(),
+                            rating.entityReference().id(),
+                            rating.measurableId()));
         } else {
-            MeasurableRatingPlannedDecommission plannedDecommission = measurableRatingPlannedDecommissionDao.getByEntityAndMeasurable(entityReference, measurableId);
+            MeasurableRatingPlannedDecommission plannedDecommission = measurableRatingPlannedDecommissionDao.getByEntityAndMeasurable(rating.entityReference(),rating.measurableId());
             String logMessage = operation.v1.equals(Operation.UPDATE)
                     ? String.format("Updated planned decommission date: from %s to %s",
                     dateChange.oldVal(),
@@ -135,6 +160,11 @@ public class MeasurableRatingPlannedDecommissionService {
 
     public MeasurableRatingPlannedDecommission getById(Long decommId) {
         return measurableRatingPlannedDecommissionDao.getById(decommId);
+    }
+
+
+    public MeasurableRatingPlannedDecommission getByMeasurableRatingId(Long ratingId) {
+        return measurableRatingPlannedDecommissionDao.getByMeasurableRatingId(ratingId);
     }
 
 }

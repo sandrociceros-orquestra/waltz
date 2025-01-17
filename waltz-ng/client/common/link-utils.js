@@ -25,6 +25,7 @@ import {toMap} from "./map-utils";
  * @type [ {<entityKind>, <uiState>}, ... ]
  */
 const stateKindTuples = [
+    {kind: "ALL", state: "main.app"},
     {kind: "ACTOR", state: "main.actor.view"},
     {kind: "AGGREGATE_OVERLAY_DIAGRAM_INSTANCE", state: "main.aggregate-overlay-diagram.instance-view"},
     {kind: "APPLICATION", state: "main.app.view"},
@@ -32,6 +33,7 @@ const stateKindTuples = [
     {kind: "CHANGE_INITIATIVE", state: "main.change-initiative.view"},
     {kind: "CHANGE_SET", state: "main.change-set.view"},
     {kind: "DATA_TYPE", state: "main.data-type.view"},
+    {kind: "END_USER_APPLICATION", state: "main.end-user-application.view"},
     {kind: "ENTITY_RELATIONSHIP", state: "main.entity-relationship.view"},
     {kind: "ENTITY_STATISTIC", state: "main.entity-statistic.view"},
     {kind: "FLOW_DIAGRAM", state: "main.flow-diagram.view"},
@@ -45,6 +47,7 @@ const stateKindTuples = [
     {kind: "LOGICAL_DATA_FLOW", state: "main.logical-flow.view"},
     {kind: "MEASURABLE", state: "main.measurable.view"},
     {kind: "MEASURABLE_CATEGORY", state: "main.measurable-category.view"},
+    {kind: "MEASURABLE_RATING", state: "main.measurable-rating.view"},
     {kind: "ORG_UNIT", state: "main.org-unit.view"},
     {kind: "PERSON", state: "main.person.id"},
     {kind: "PROCESS", state: "main.process.view"},
@@ -58,7 +61,8 @@ const stateKindTuples = [
     {kind: "SOFTWARE", state: "main.software-package.view"},
     {kind: "SOFTWARE_VERSION", state: "main.software-version.view"}, //todo: no separate view for this (for now), just a workaround for the entity-link tooltip
     {kind: "SURVEY_INSTANCE", state: "main.survey.instance.view"},
-    {kind: "TAG", state: "main.tag.id.view"}
+    {kind: "TAG", state: "main.tag.id.view"},
+    {kind: "ROLE", state: "main.role.view"}
 ];
 
 

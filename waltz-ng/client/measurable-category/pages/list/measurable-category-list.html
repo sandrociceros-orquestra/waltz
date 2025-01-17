@@ -41,29 +41,14 @@
     <div class='waltz-page-summary-attach waltz-page-summary'>
 
         <div class="row">
-            <div class="col-md-12">
-                <div class="waltz-tabs">
-                    <span class="wt-tab-header"
-                          ng-repeat="tab in $ctrl.categories track by tab.id"
-                          ng-class="{
-                                'wt-active' : tab.id === $ctrl.category.id,
-                                'wt-disabled' : ! $ctrl.measurablesByCategory[tab.id]
-                          }">
-                        <a ng-if="$ctrl.measurablesByCategory[tab.id]"
-                           ui-sref="main.measurable-category.list ({ id:tab.id })">
-                            <span ng-bind="tab.name">
-                            </span>
-                        </a>
-
-                        <span ng-bind="tab.name"
-                              ng-if="! $ctrl.measurablesByCategory[tab.id]">
-                        </span>
-                    </span>
-                </div>
+            <div class="col-sm-12">
+                <waltz-markdown text="$ctrl.category.description">
+                </waltz-markdown>
+                <waltz-static-panels render-mode="chromeless"
+                                     group-key="HOME.MEASURABLE.{{$ctrl.category.id}}">
+                </waltz-static-panels>
             </div>
         </div>
-
-        <br>
 
         <div class="row"
              ng-if="$ctrl.diagrams.length > 0">
@@ -78,26 +63,23 @@
 
         <div class="row">
             <!-- TREE -->
-            <div class="col-sm-7">
+            <div class="col-sm-12">
                 <waltz-measurable-tree measurables="$ctrl.measurables">
                 </waltz-measurable-tree>
-            </div>
-
-            <!-- PANELS -->
-            <div class="col-sm-5">
-                <waltz-markdown text="$ctrl.category.description">
-                </waltz-markdown>
-
-                <waltz-static-panels render-mode="chromeless"
-                                     group-key="HOME.MEASURABLE.{{$ctrl.category.id}}">
-                </waltz-static-panels>
 
                 <hr>
 
-                <waltz-data-extract-link name="Export"
+                <waltz-data-extract-link name="Export as Parent Child"
                                          uib-popover="Exports this taxonomy and the key people associated with it"
                                          popover-trigger="mouseenter"
                                          extract="measurable-category/{{$ctrl.category.id}}"
+                                         filename="{{$ctrl.category.name}}.csv">
+                </waltz-data-extract-link>
+
+                <waltz-data-extract-link name="Export as Flattened Hierarchy"
+                                         uib-popover="Exports this taxonomy with L1, L2, L3 etc"
+                                         popover-trigger="mouseenter"
+                                         extract="measurable-category/flat/{{$ctrl.category.id}}"
                                          filename="{{$ctrl.category.name}}.csv">
                 </waltz-data-extract-link>
 
@@ -121,5 +103,12 @@
     <waltz-dynamic-section-wrapper section="$ctrl.peopleSection"
                                    parent-entity-ref="$ctrl.categoryRef">
     </waltz-dynamic-section-wrapper>
+
+    <waltz-dynamic-section-wrapper section="$ctrl.taxonomyChangesSection"
+                                   ng-if="$ctrl.category.editable"
+                                   parent-entity-ref="$ctrl.categoryRef">
+    </waltz-dynamic-section-wrapper>
+
+
 </div>
 

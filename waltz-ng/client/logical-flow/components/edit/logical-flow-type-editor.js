@@ -18,13 +18,12 @@
 
 import _ from "lodash";
 import template from "./logical-flow-type-editor.html";
-import {toEntityRef} from "../../../common/entity-utils";
-import toasts from "../../../svelte-stores/toast-store";
+import {toEntityRefWithKind} from "../../../common/entity-utils";
+import FlowDataTypeEditor from "./svelte/FlowDataTypeEditor.svelte";
 
 
 const bindings = {
     flow: "<",
-    onDelete: "<",
     onReload: "<",
     onCancel: "<",
     onSelect: "<?"
@@ -34,10 +33,9 @@ const bindings = {
 const initialState = {
     flow: null,
     isDirty: false,
-    onDelete: (x) => console.log("lfte: default onDelete()", x),
     onReload: (x) => console.log("lfte: default onReload()", x),
     onCancel: (x) => console.log("lfte: default onCancel()", x),
-    onSelect: (x) => console.log("lfte: default onSelect()", x)
+    FlowDataTypeEditor
 };
 
 
@@ -46,7 +44,7 @@ function controller() {
     const vm = _.defaultsDeep(this, initialState);
 
     const refresh = () => {
-        vm.logicalFlowEntityRef = toEntityRef(vm.flow, "LOGICAL_DATA_FLOW");
+        vm.logicalFlowEntityRef = toEntityRefWithKind(vm.flow, "LOGICAL_DATA_FLOW");
     };
 
     vm.$onInit = () => {
@@ -57,29 +55,7 @@ function controller() {
         refresh();
     };
 
-    vm.onDirty = (dirtyFlag) => {
-        vm.isDirty = dirtyFlag;
-    };
-
-    vm.registerSaveFn = (saveFn) => {
-        vm.save = saveFn;
-    };
-
-    vm.delete = () => vm.onDelete(vm.flow);
     vm.cancel = () => vm.onCancel();
-
-    vm.onSave = () => {
-        if (vm.save) {
-            vm.save()
-                .then(() => {
-                    toasts.success("Data types updated successfully");
-                    vm.cancel(); //clear edit session
-                    vm.onReload();
-                });
-        } else {
-            console.log("onSave - no impl");
-        }
-    };
 }
 
 

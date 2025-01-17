@@ -18,9 +18,12 @@
 
 package org.finos.waltz.web.endpoints.api;
 
+import org.eclipse.jetty.util.IO;
 import org.finos.waltz.common.exception.InsufficientPrivelegeException;
 import org.finos.waltz.model.EntityKind;
+import org.finos.waltz.model.IdSelectionOptions;
 import org.finos.waltz.model.Operation;
+import org.finos.waltz.model.logical_flow.LogicalFlowView;
 import org.finos.waltz.service.permission.permission_checker.FlowPermissionChecker;
 import org.finos.waltz.service.logical_flow.LogicalFlowService;
 import org.finos.waltz.service.user.UserRoleService;
@@ -33,6 +36,7 @@ import org.finos.waltz.model.logical_flow.AddLogicalFlowCommand;
 import org.finos.waltz.model.logical_flow.LogicalFlow;
 import org.finos.waltz.model.logical_flow.LogicalFlowGraphSummary;
 import org.finos.waltz.model.logical_flow.LogicalFlowStatistics;
+import org.finos.waltz.model.logical_flow.UpdateReadOnlyCommand;
 import org.finos.waltz.model.user.SystemRole;
 import org.jooq.lambda.tuple.Tuple;
 import org.jooq.lambda.tuple.Tuple2;
@@ -97,12 +101,16 @@ public class LogicalFlowEndpoint implements Endpoint {
         String findPermissionsForFlowPath = mkPath(BASE_URL, "id", ":id", "permissions");
         String findUpstreamFlowsForEntityReferencesPath = mkPath(BASE_URL, "find-upstream-flows");
         String getByIdPath = mkPath(BASE_URL, ":id");
+        String getByExternalIdPath = mkPath(BASE_URL, "external-id", ":externalId");
         String removeFlowPath = mkPath(BASE_URL, ":id");
+        String restoreFlowPath = mkPath(BASE_URL, ":id", "restore");
         String cleanupOrphansPath = mkPath(BASE_URL, "cleanup-orphans");
         String cleanupSelfReferencesPath = mkPath(BASE_URL, "cleanup-self-references");
         String addFlowPath = mkPath(BASE_URL);
         String addFlowsPath = mkPath(BASE_URL, "list");
         String getFlowGraphSummaryPath = mkPath(BASE_URL, "entity", ":kind", ":id", "data-type", ":dtId", "graph-summary");
+        String getFlowViewPath = mkPath(BASE_URL, "view");
+        String updateReadOnlyPath = mkPath(BASE_URL, "update", "read-only", ":id");
 
         ListRoute<LogicalFlow> getByEntityRef = (request, response)
                 -> logicalFlowService.findByEntityReference(getEntityReference(request));
@@ -139,10 +147,18 @@ public class LogicalFlowEndpoint implements Endpoint {
         DatumRoute<LogicalFlow> getByIdRoute = (request, response)
                 -> logicalFlowService.getById(getId(request));
 
+        DatumRoute<LogicalFlow> getByExternalIdRoute = (request, response)
+                -> logicalFlowService.getByExternalId(request.params("externalId"));
+
         DatumRoute<LogicalFlowGraphSummary> getGraphSummaryRoute = (request, response) -> {
             String dtIdString = request.params("dtId");
             Long dtId = StringUtilities.parseLong(dtIdString, null);
             return logicalFlowService.getFlowInfoByDirection(getEntityReference(request), dtId);
+        };
+
+        DatumRoute<LogicalFlowView> getFlowViewRoute = (request, response) -> {
+            IdSelectionOptions idSelectionOptions = readIdSelectionOptionsFromBody(request);
+            return logicalFlowService.getFlowView(idSelectionOptions);
         };
 
         getForDatum(cleanupOrphansPath, this::cleanupOrphansRoute);
@@ -152,6 +168,7 @@ public class LogicalFlowEndpoint implements Endpoint {
         getForList(findPermissionsForFlowPath, findPermissionsForFlowRoute);
         getForList(findEditableFlowIdsForParentReferencePath, findEditableFlowIdsForParentReferenceRoute);
         getForDatum(getByIdPath, getByIdRoute);
+        getForDatum(getByExternalIdPath, getByExternalIdRoute);
         getForDatum(getFlowGraphSummaryPath, getGraphSummaryRoute);
         postForList(findByIdsPath, findByIdsRoute);
         postForList(findUpstreamFlowsForEntityReferencesPath, findUpstreamFlowsForEntityReferencesRoute);
@@ -161,6 +178,9 @@ public class LogicalFlowEndpoint implements Endpoint {
         deleteForDatum(removeFlowPath, this::removeFlowRoute);
         postForDatum(addFlowPath, this::addFlowRoute);
         postForList(addFlowsPath, this::addFlowsRoute);
+        putForDatum(restoreFlowPath, this::restoreFlowRoute);
+        postForDatum(getFlowViewPath, getFlowViewRoute);
+        postForDatum(updateReadOnlyPath, this::updateReadOnly);
     }
 
 
@@ -239,6 +259,18 @@ public class LogicalFlowEndpoint implements Endpoint {
     }
 
 
+    private boolean restoreFlowRoute(Request request, Response response) {
+
+        long flowId = getId(request);
+        String username = getUsername(request);
+        ensureUserHasEditRights(flowId, username);
+
+        LOG.info("User: {} restoring logical flow: {}", username, flowId);
+
+        return logicalFlowService.restoreFlow(flowId, username);
+    }
+
+
     private void ensureUserHasEditRights(Long id, String username) {
         Set<Operation> permissionsForFlow = flowPermissionChecker.findPermissionsForFlow(id, username);
         Set<Operation> editPermissions = intersection(permissionsForFlow, asSet(Operation.ADD, Operation.UPDATE, Operation.REMOVE));
@@ -257,5 +289,19 @@ public class LogicalFlowEndpoint implements Endpoint {
 
     private void ensureUserHasAdminRights(Request request) {
         requireRole(userRoleService, request, SystemRole.ADMIN);
+    }
+
+    private LogicalFlow updateReadOnly(Request request, Response response) throws IOException {
+        long flowId = getId(request);
+        String user = getUsername(request);
+        UpdateReadOnlyCommand cmd = readBody(request, UpdateReadOnlyCommand.class);
+
+        ensureUserHasAdminRights(request);
+        LogicalFlow resp = logicalFlowService.updateReadOnly(flowId, cmd.readOnly(), user);
+        if(resp == null) {
+            throw new IllegalArgumentException("No such Logical Flow exists");
+        }
+
+        return resp;
     }
 }

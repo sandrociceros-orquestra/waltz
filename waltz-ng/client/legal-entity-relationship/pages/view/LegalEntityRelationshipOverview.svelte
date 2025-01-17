@@ -13,6 +13,7 @@
     import {legalEntityRelationshipKindStore} from "../../../svelte-stores/legal-entity-relationship-kind-store";
     import Icon from "../../../common/svelte/Icon.svelte";
     import EntityLink from "../../../common/svelte/EntityLink.svelte";
+    import {primaryEntityReference as primaryRef} from "../../../assessments/components/rating-editor/rating-store";
 
 
     export let primaryEntityReference;
@@ -35,6 +36,7 @@
     }
 
     $: relKind = $relKindCall?.data;
+    $: $primaryRef = primaryEntityReference;
 
     function openAssessmentsSection() {
 
@@ -78,8 +80,7 @@
 </PageHeader>
 
 
-<div class="waltz-page-summary waltz-page-summary-attach"
-     style="margin-bottom: 5em;">
+<div class="waltz-page-summary waltz-page-summary-attach">
     <div class="waltz-display-section">
         <div class="row">
             <div class="col-md-6">

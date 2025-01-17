@@ -8,6 +8,7 @@
     import {userStore} from "../../svelte-stores/user-store";
     import toasts from "../../svelte-stores/toast-store";
     import Icon from "../../common/svelte/Icon.svelte";
+    import ViewLink from "../../common/svelte/ViewLink.svelte";
 
     let qry = "";
     let comment = null;
@@ -26,7 +27,7 @@
 
     $: displayedRoles = _.isEmpty(qry)
         ? userSelectableRoles
-        : termSearch(userSelectableRoles, qry, ["name", "value", "description"]);
+        : termSearch(userSelectableRoles, qry, ["name", "key", "value", "description"]);
 
     function updateUserRoles() {
         const updatePromise = userStore
@@ -41,7 +42,6 @@
     }
 
     function selectRole(role) {
-
         let roleExists = _.includes($userRoles, role.key);
 
         $userRoles = roleExists
@@ -94,8 +94,9 @@
         <table class="table table-condensed small table-hover">
             <colgroup>
                 <col width="10%">
-                <col width="40%">
-                <col width="40%">
+                <col width="30%">
+                <col width="20%">
+                <col width="30%">
                 <col width="10%">
             </colgroup>
             <thead>
@@ -113,6 +114,7 @@
 
                 </th>
                 <th>Role</th>
+                <th>Key</th>
                 <th>Description</th>
                 <th>Custom Role</th>
             </tr>
@@ -125,7 +127,13 @@
                                on:change={() => selectRole(role)}
                                checked={hasRole($userRoles, role.key)}>
                     </td>
-                    <td>{role.name}</td>
+                    <td>
+                        <ViewLink state="main.role.view"
+                                  ctx={{id: role.id}}>
+                            {role.name}
+                        </ViewLink>
+                    </td>
+                    <td>{role.key}</td>
                     <td>{role.description || ""}</td>
                     <td>
                         <input type="checkbox"

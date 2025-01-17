@@ -82,13 +82,13 @@
 
         <!-- Edit Physical Split button -->
         <div style="display: inline-block"
-             ng-if="$ctrl.canEdit && $ctrl.activeTab.id === 'PHYSICAL' && !$ctrl.isAnyEditorVisible()">
+             ng-if="$ctrl.canEdit && $ctrl.activeTab.id === 'FLOW_DETAIL' && !$ctrl.isAnyEditorVisible()">
             <div class="btn-group"
                  uib-dropdown>
 
                 <a class="btn btn-xs btn-primary"
                    ui-sref="main.physical-flow.registration ($ctrl.parentEntityRef)">
-                    Edit
+                    Register Physical Flow
                 </a>
                 <button type="button"
                         waltz-has-role="BULK_FLOW_EDITOR"
@@ -160,7 +160,22 @@
 
             <div ng-if="$ctrl.activeMode === 'EDIT'">
                 <h4>Edit Logical Data Flows</h4>
-                <waltz-logical-flow-edit-panel parent-entity-ref="$ctrl.parentEntityRef">
+
+                <waltz-logical-flow-edit-panel parent-entity-ref="$ctrl.parentEntityRef"
+                                               rating-direction="$ctrl.visibility.ratingDirection">
+                    <legend style="font-size: inherit; border-bottom: none">
+                        <waltz-toggle state="$ctrl.visibility.ratingDirection === 'OUTBOUND'"
+                                      on-toggle="$ctrl.onToggleRatingDirection()"
+                                      label-on="Showing producer flow ratings"
+                                      label-off="Showing consumer flow ratings">
+                        </waltz-toggle>
+
+                        <div class="help-block">
+                            <waltz-svelte-component component="$ctrl.FlowClassificationLegend"
+                                                    rating-direction="$ctrl.visibility.ratingDirection">
+                            </waltz-svelte-component>
+                        </div>
+                    </legend>
                 </waltz-logical-flow-edit-panel>
             </div>
 
@@ -194,7 +209,6 @@
                 <!-- SOURCE AND TARGET GRAPH -->
                 <div class="row">
                     <div class="col-md-12">
-                        <strong>Logical Flows</strong>
                         <waltz-no-data ng-if="$ctrl.logicalFlows.length == 0">
                             <message>
                                 <strong>
@@ -219,18 +233,27 @@
                                                            physical-flows="$ctrl.physicalFlows"
                                                            physical-specifications="$ctrl.physicalSpecifications"
                                                            change-units="$ctrl.changeUnits"
-                                                           tags="$ctrl.tags">
+                                                           tags="$ctrl.tags"
+                                                           rating-direction="$ctrl.visibility.ratingDirection">
                             </waltz-source-and-target-panel>
+
+                            <waltz-toggle state="$ctrl.visibility.ratingDirection === 'OUTBOUND'"
+                                          on-toggle="$ctrl.onToggleRatingDirection()"
+                                          label-on="Showing producer flow ratings"
+                                          label-off="Showing consumer flow ratings">
+                            </waltz-toggle>
+                            <p class="help-block">
+                                <waltz-svelte-component component="$ctrl.FlowClassificationLegend"
+                                                        rating-direction="$ctrl.visibility.ratingDirection">
+                                </waltz-svelte-component>
+                            </p>
 
                             <p class="help-block">
                                 This diagram shows flows categorized by data type to this application (center)
                                 from sending systems (on the left)
                                 and to the receiving system (on the right).
                             </p>
-                            <p class="help-block">
-                                Legend:
-                                <waltz-svelte-component component="$ctrl.FlowClassificationLegend"></waltz-svelte-component>
-                            </p>
+
                         </div>
                     </div>
                 </div>
@@ -239,7 +262,8 @@
                 <div ng-if="$ctrl.dataTypeUsages.length > 0 || $ctrl.logicalFlows.length > 0">
                     <div class='row'>
                         <div class="col-sm-6">
-                            <waltz-application-flow-summary-pane parent-entity-ref="$ctrl.parentEntityRef">
+                            <waltz-application-flow-summary-pane parent-entity-ref="$ctrl.parentEntityRef"
+                                                                 rating-direction="$ctrl.visibility.ratingDirection">
 
                             </waltz-application-flow-summary-pane>
                         </div>
@@ -272,29 +296,19 @@
             </div>
         </div>
 
-        <div class="wt-tab wt-active"
-             ng-if="$ctrl.activeTab.id === 'PHYSICAL'">
-
-            <div class="waltz-panel-content"
-                 ng-if="$ctrl.activeMode === 'VIEW'">
-                <br>
-                <waltz-physical-data-section specifications="$ctrl.physicalSpecifications"
-                                             logical-flows="$ctrl.logicalFlows"
-                                             primary-ref="$ctrl.parentEntityRef"
-                                             physical-flows="$ctrl.physicalFlows">
-                </waltz-physical-data-section>
-            </div>
-
-            <div ng-if="$ctrl.activeMode === 'BULK'">
-                <waltz-bulk-physical-flow-loader-wizard>
-                </waltz-bulk-physical-flow-loader-wizard>
-            </div>
-        </div>
 
         <div class="wt-tab wt-active"
              ng-if="$ctrl.activeTab.id === 'FLOW_CLASSIFICATION_RULES'">
-            <waltz-flow-classification-rules-table rules="$ctrl.flowClassificationRules">
-            </waltz-flow-classification-rules-table>
+            <waltz-svelte-component component="$ctrl.FlowClassificationRulesPanel"
+                                    primary-entity-ref="$ctrl.parentEntityRef">
+            </waltz-svelte-component>
+        </div>
+
+        <div class="wt-tab wt-active"
+             ng-if="$ctrl.activeTab.id === 'FLOW_DETAIL'">
+            <waltz-svelte-component parent-entity-ref="$ctrl.parentEntityRef"
+                                    component="$ctrl.FlowDetailPanel">
+            </waltz-svelte-component>
         </div>
 
         <div class="wt-tab wt-active"

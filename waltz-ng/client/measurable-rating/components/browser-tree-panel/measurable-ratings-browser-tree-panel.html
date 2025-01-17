@@ -22,6 +22,7 @@
             <waltz-measurable-ratings-browser rating-tallies="$ctrl.ratingTallies"
                                               measurables="$ctrl.measurables"
                                               categories="$ctrl.measurableCategories"
+                                              last-viewed-category-id="$ctrl.lastViewedCategoryId"
                                               scroll-height="500"
                                               on-select="$ctrl.onSelect"
                                               on-select-unmapped="$ctrl.onSelectUnmapped"
@@ -30,19 +31,38 @@
 
         </div>
         <div class="col-sm-6">
-            <div ng-if="$ctrl.activeCategory" style="padding-top: 8px">
+            <div ng-if="$ctrl.activeCategory">
+                <h4>
+                    <waltz-icon name="{{$ctrl.activeCategory.icon}}"></waltz-icon>
+                    <span ng-bind="$ctrl.activeCategory.name"></span>
+                </h4>
+
                 <p class="text-muted">
                     <waltz-markdown text="$ctrl.activeCategory.description"></waltz-markdown>
                 </p>
+
+                <waltz-warning ng-if="$ctrl.activeCategory.allowPrimaryRatings">
+                    <message>This category supports Primary Ratings</message>
+                    <content>
+                        Use the toggle below to filter the tree to only show ratings which have been flagged as
+                        <i>Primary</i>
+                        <div style="padding-top: 1em;">
+                            <waltz-toggle icon-on="star"
+                                          icon-off="star-o"
+                                          label-on="Showing only primary ratings"
+                                          label-off="Showing all ratings"
+                                          state="$ctrl.showPrimaryOnly"
+                                          on-toggle="$ctrl.onTogglePrimaryOnly(!$ctrl.showPrimaryOnly)">
+                            </waltz-toggle>
+                        </div>
+                    </content>
+                </waltz-warning>
                 <hr>
             </div>
-            <waltz-loading-notification show="$ctrl.visibility.loading"
-                                        style="padding-top: 54px;"
-                                        name="Loading">
-            </waltz-loading-notification>
 
-            <div ng-if="$ctrl.visibility.ratingDetail && $ctrl.tableData"
+            <div ng-if="$ctrl.visibility.ratingDetail"
                  class="waltz-fade-if">
+
                 <strong>
                     <div ng-if="$ctrl.selectedMeasurable.id">
                         <a ng-bind="$ctrl.selectedMeasurable.name"
@@ -72,22 +92,20 @@
                         Show less
                     </a>
                 </div>
-                <br>
 
-                <waltz-grid-with-search class="wmrbtp-grid-tall"
-                                        ng-if="$ctrl.tableData.length > 0"
-                                        column-defs="$ctrl.columnDefs"
-                                        entries="$ctrl.tableData">
-                </waltz-grid-with-search>
+                <waltz-svelte-component ng-if="!$ctrl.showUnmapped"
+                                        component="$ctrl.MeasurableRatingsViewGrid"
+                                        selection-options="$ctrl.selectionOptions">
+                </waltz-svelte-component>
 
-                <waltz-no-data ng-if="$ctrl.tableData.length == 0">
-                    <message>
-                        No Applications found
-                    </message>
-                </waltz-no-data>
+                <waltz-svelte-component ng-if="$ctrl.showUnmapped"
+                                        component="$ctrl.UnmappedMeasurablesViewGrid"
+                                        selection-options="$ctrl.selectionOptions">
+                </waltz-svelte-component>
 
             </div>
         </div>
+
     </div>
 
 </div>

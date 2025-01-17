@@ -37,7 +37,6 @@ import java.util.Set;
 import static java.util.Collections.emptyList;
 import static org.finos.waltz.common.Checks.checkNotEmpty;
 import static org.finos.waltz.common.Checks.checkNotNull;
-import static org.finos.waltz.common.FunctionUtilities.time;
 import static org.finos.waltz.common.StringUtilities.isEmpty;
 
 @Service
@@ -70,15 +69,15 @@ public class PersonService {
 
     public List<Person> findDirectsByEmployeeId(String employeeId) {
         checkNotEmpty(employeeId, "Cannot find directs without an employeeId");
-        return time("PS.findDirectsByEmployeeId", () -> personDao.findDirectsByEmployeeId(employeeId));
+        return personDao.findDirectsByEmployeeId(employeeId);
     }
 
 
-    public Set<Person> findDirectsForPersonIds(List<Long> personIds) {
+    public List<Person> findDirectsForPersonIds(List<Long> personIds) {
         if (CollectionUtilities.isEmpty(personIds)) {
-            return Collections.emptySet();
+            return Collections.emptyList();
         }
-        return time("PS.findDirectsByPersonIds", () -> personDao.findDirectsForPersonIds(personIds));
+        return personDao.findDirectsForPersonIds(personIds);
     }
 
 
@@ -87,7 +86,7 @@ public class PersonService {
      **/
     public List<Person> findAllManagersByEmployeeId(String employeeId) {
         checkNotEmpty(employeeId, "Cannot find directs without an employeeId");
-        return time("PS.findAllManagersByEmployeeId", () -> personDao.findAllManagersByEmployeeId(employeeId));
+        return personDao.findAllManagersByEmployeeId(employeeId);
     }
 
 

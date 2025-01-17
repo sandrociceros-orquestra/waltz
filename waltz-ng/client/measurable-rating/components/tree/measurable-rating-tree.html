@@ -48,7 +48,7 @@
                  expanded-nodes="$ctrl.expandedNodes"
                  options="$ctrl.treeOptions"
                  on-selection="$ctrl.onSelect(node)"
-                 order-by="'-measurable.name'">
+                 order-by="['-measurable.position', '-measurable.name']">
 
         <span class="waltz-visibility-parent wmrt-node">
             <span ng-style="{ opacity: node.measurable.concrete ? 1 : 0.5 }">
@@ -72,10 +72,13 @@
                 </span>
                 <waltz-icon name="exclamation-triangle"
                             ng-if="node.ratingSchemeItem.isRestricted"
-                            style="color: red; position: relative; top: -1px">
+                            style="color: #efc155; position: relative; top: -1px">
                 </waltz-icon>
                 <span style="position: relative; top: -1px"
                       class="waltz-visibility-child-30">
+                    <waltz-icon name="star"
+                                ng-if="node.rating.isPrimary">
+                    </waltz-icon>
                     <waltz-icon name="lock"
                                 ng-if="node.rating.isReadOnly">
                     </waltz-icon>
@@ -128,6 +131,14 @@
             <waltz-markdown text="node.rating.description"></waltz-markdown>
         </div>
 
+        <div ng-if="node.rating.isPrimary"
+             style="border-top: 1px solid #eee; margin-top: 12px; padding-top: 4px"
+             class="text-muted">
+            <waltz-icon name="star">
+            </waltz-icon>
+            This feature has been marked as primary
+        </div>
+
         <div ng-if="node.allocations.length > 0"
              style="border-top: 1px solid #eee; margin-top: 12px; padding-top: 4px"
              class="text-muted">
@@ -173,7 +184,9 @@
              class="text-muted">
             <waltz-icon name="exclamation-triangle">
             </waltz-icon>
-            This rating is in breach of the constraining assessment
+            This rating is in breach of the constraining assessment.
+            It has a 'higher' rating than the overall
+            {{node.rating.entityReference.kind | toDisplayName:'entity'}}.
         </div>
     </div>
 </script>

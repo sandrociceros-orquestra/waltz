@@ -1,0 +1,271 @@
+<!--
+  ~ Waltz - Enterprise Architecture
+  ~ Copyright (C) 2016, 2017, 2018, 2019 Waltz open source project
+  ~ See README.md for more information
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~     http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific
+  ~
+  -->
+
+<div>
+    <!-- ACTIONS -->
+    <waltz-section-actions>
+        <button class="btn btn-xs waltz-btn-transparent"
+                ng-click="$ctrl.visibility.overlay = ! $ctrl.visibility.overlay">
+            <waltz-icon name="map-signs"></waltz-icon>
+        </button>
+    </waltz-section-actions>
+
+
+    <!-- SOURCE DATA OVERLAY -->
+    <waltz-source-data-overlay visible="$ctrl.visibility.overlay"
+                               entities="['MEASURABLE_RATING', 'PROCESS']">
+    </waltz-source-data-overlay>
+
+
+    <div class="row">
+        <div class="col-lg-12">
+            <!-- RATINGS -->
+            <waltz-sub-section name="Ratings">
+                <content>
+                    <div style="margin: 8px; padding-bottom: 8px">
+                        <!-- EDITOR -->
+                        <div ng-if="$ctrl.visibility.editor">
+                            <waltz-measurable-rating-edit-panel parent-entity-ref="$ctrl.parentEntityRef"
+                                                                allocations="$ctrl.activeTab.allocations"
+                                                                allocation-schemes="$ctrl.activeTab.allocationSchemes"
+                                                                starting-category-id="$ctrl.visibility.tab"
+                                                                planned-decommissions="$ctrl.activeTab.plannedDecommissions"
+                                                                replacing-decommissions="$ctrl.activeTab.replacingDecommissions"
+                                                                replacement-apps="$ctrl.activeTab.replacementApps"
+                                                                application="$ctrl.application">
+                            </waltz-measurable-rating-edit-panel>
+                        </div>
+
+                        <!-- VIEW -->
+                        <div ng-if="$ctrl.visibility.editor === false">
+                            <div ng-include="'wmres-ratings-view'"></div>
+                        </div>
+                    </div>
+
+                    <div class="waltz-sub-section-controls">
+                        <span ng-if="$ctrl.hasEditPermissions">
+                            <a ng-if="$ctrl.visibility.editor === false"
+                               ng-click="$ctrl.onEditRatings()"
+                               class="clickable">
+                                Edit
+                            </a>
+                            <a ng-if="$ctrl.visibility.editor === true"
+                               ng-click="$ctrl.onViewRatings()"
+                               class="clickable">
+                                View
+                            </a>
+                        </span>
+                        <span ng-if="$ctrl.visibility.editor === false">
+                            <waltz-data-extract-link name="Export ratings"
+                                                     styling="link"
+                                                     extract="measurable-rating-view/category-id/{{$ctrl.activeTab.category.id}}"
+                                                     request-body="$ctrl.extractParams"
+                                                     method="POST">
+                            </waltz-data-extract-link>
+                            <span ng-if="$ctrl.hasEditPermissions">|</span>
+                        </span>
+                    </div>
+                </content>
+            </waltz-sub-section>
+        </div>
+    </div>
+
+
+    <div class="row waltz-fade-if"
+         ng-if="$ctrl.activeAllocationScheme">
+        <br>
+        <div class="col-lg-12">
+            <waltz-allocation-entity-sub-section entity-reference="$ctrl.parentEntityRef"
+                                                 scheme="$ctrl.activeAllocationScheme"
+                                                 measurable-category="$ctrl.activeTab.category"
+                                                 allocations="$ctrl.activeTab.allocations"
+                                                 on-save="$ctrl.onSaveAllocations"
+                                                 on-dismiss="$ctrl.onDismissAllocations"
+                                                 can-edit="$ctrl.hasEditPermissions">
+            </waltz-allocation-entity-sub-section>
+        </div>
+    </div>
+
+
+    <div class="row"
+         ng-if="$ctrl.roadmapsEnabled">
+        <br>
+        <div class="col-lg-12">
+            <!-- ROADMAPS -->
+            <waltz-roadmap-references parent-entity-ref="$ctrl.parentEntityRef">
+            </waltz-roadmap-references>
+        </div>
+    </div>
+
+    <br>
+
+</div>
+
+
+<!-- TEMPLATES -->
+
+<!-- RATINGS TABS -->
+<script type="text/ng-template"
+        id="wmres-ratings-view">
+    <!-- NO DATA -->
+    <div ng-if="$ctrl.tabs.length == 0">
+        <waltz-no-data>
+            <message>
+                <p>
+                    <strong>No ratings</strong>
+                    available for this entity.
+                </p>
+                <p ng-if="$ctrl.hasEditPermissions">
+                    <a class="clickable"
+                       ng-if="$ctrl.visibility.editor === false"
+                       ng-click="$ctrl.visibility.editor = true">
+                        <waltz-icon name="plus"></waltz-icon>
+                        Add some ratings.
+                    </a>
+                </p>
+            </message>
+        </waltz-no-data>
+    </div>
+
+    <!-- SOME DATA -->
+    <div ng-if="$ctrl.tabs.length > 0">
+        <div class="waltz-tabs">
+            <input type="radio"
+                   ng-repeat-start="tab in $ctrl.tabs track by tab.category.id"
+                   ng-model="$ctrl.visibility.tab"
+                   ng-value="tab.category.id"
+                   ng-change="$ctrl.onTabChange(tab.category.id)"
+                   name="measurable_rating"
+                   id="{{ tab.category.id + '_' +$id}}">
+            <label class="wt-label"
+                   for="{{ tab.category.id + '_' +$id}}"
+                   uib-popover-template="'wmres-tab-popover.html'"
+                   popover-trigger="mouseenter"
+                   popover-append-to-body="true"
+                   popover-placement="bottom"
+                   popover-popup-delay="300"
+                   ng-repeat-end>
+                <waltz-icon name="{{tab.category.icon}}"></waltz-icon>
+                <span ng-bind="tab.category.name">
+                </span>
+            </label>
+
+            <div ng-if="$ctrl.activeTab"
+                 ng-include="'wmres-tab-content'">
+            </div>
+        </div>
+    </div>
+
+</script>
+
+
+<!-- TAB CONTENT -->
+<script type="text/ng-template"
+        id="wmres-tab-content">
+    <br>
+
+    <div class="row">
+        <div class="col-sm-12">
+            <waltz-loading-notification show="$ctrl.visibility.loading"
+                                        style="padding-top: 54px;"
+                                        name="Loading">
+            </waltz-loading-notification>
+        </div>
+    </div>
+
+    <!-- RATING TREE -->
+    <div class="row" ng-show="!$ctrl.visibility.loading">
+        <div class="col-sm-12">
+            <waltz-measurable-rating-panel category="$ctrl.activeTab.category"
+                                           measurables="$ctrl.activeTab.measurables"
+                                           ratings="$ctrl.activeTab.ratings"
+                                           rating-scheme-items="$ctrl.activeTab.ratingSchemeItems"
+                                           allocations="$ctrl.activeTab.allocations"
+                                           allocation-schemes="$ctrl.activeTab.allocationSchemes"
+                                           planned-decommissions="$ctrl.activeTab.plannedDecommissions"
+                                           replacing-decommissions="$ctrl.activeTab.replacingDecommissions"
+                                           replacement-apps="$ctrl.activeTab.plannedReplacements"
+                                           application="$ctrl.application"
+                                           assessment-definitions="$ctrl.activeTab.assessmentDefinitions"
+                                           assessment-ratings="$ctrl.activeTab.assessmentRatings"
+                                           measurable-hierarchy-by-id="$ctrl.activeTab.measurableHierarchyById">
+            </waltz-measurable-rating-panel>
+        </div>
+    </div>
+
+    <!-- ALLOCATION SCHEMES -->
+    <div class="row"
+         ng-if="$ctrl.activeTab.allocationSchemes.length > 0">
+        <br>
+        <div class="col-sm-12">
+            <span class="waltz-display-field-label">Allocations:</span>
+            <span ng-repeat="scheme in $ctrl.activeTab.allocationSchemes">
+                <a class="clickable"
+                   ng-click="$ctrl.onShowAllocationScheme(scheme)">
+                    &nbsp;
+                    <span ng-bind="scheme.name"
+                          uib-popover-template="'wmres-scheme-popover.html'"
+                          popover-trigger="mouseenter"
+                          popover-popup-delay="300"
+                          popover-append-to-body="true"
+                          popover-placement="bottom">
+                    </span>
+                </a>
+
+                :
+
+                <span class="small text-muted">
+                    <span ng-bind="$ctrl.activeTab.allocationTotalsByScheme[scheme.id] || 0"></span> % allocated
+                </span>
+
+                <span ng-if="!$last">&nbsp;|&nbsp;</span>
+            </span>
+        </div>
+    </div>
+
+</script>
+
+
+<!-- CATEGORY POPOVER -->
+<script type="text/ng-template"
+        id="wmres-tab-popover.html">
+    <div class="small">
+        <strong ng-bind="$ctrl.activeTab.category.name">
+        </strong>
+        <div>
+            <hr>
+            <waltz-markdown text="$ctrl.activeTab.category.description">
+            </waltz-markdown>
+        </div>
+    </div>
+</script>
+
+
+<!-- ALLOCATION SCHEME POPOVER -->
+<script type="text/ng-template"
+        id="wmres-scheme-popover.html">
+    <div class="small">
+        <strong ng-bind="scheme.name">
+        </strong>
+        <div>
+            <hr>
+            <waltz-markdown text="scheme.description">
+            </waltz-markdown>
+        </div>
+    </div>
+</script>

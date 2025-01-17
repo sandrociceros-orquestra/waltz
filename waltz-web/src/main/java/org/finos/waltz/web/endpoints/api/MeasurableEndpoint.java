@@ -50,8 +50,10 @@ public class MeasurableEndpoint implements Endpoint {
         String findAllPath = mkPath(BASE_URL, "all");
         String getByIdPath = mkPath(BASE_URL, "id", ":id");
         String findByMeasurableIdSelectorPath = mkPath(BASE_URL, "measurable-selector");
+        String findByRatingIdSelectorPath = mkPath(BASE_URL, "rating-selector");
         String findByExternalIdPath = mkPath(BASE_URL, "external-id", ":extId");
         String findByOrgUnitIdPath = mkPath(BASE_URL, "org-unit", "id", ":id");
+        String findByParentIdPath = mkPath(BASE_URL, "parent-id", ":id");
         String searchPath = mkPath(BASE_URL, "search", ":query");
 
         ListRoute<Measurable> findAllRoute = (request, response)
@@ -63,6 +65,9 @@ public class MeasurableEndpoint implements Endpoint {
         ListRoute<Measurable> findByMeasurableIdSelectorRoute = (request, response)
                 -> measurableService.findByMeasurableIdSelector(readIdSelectionOptionsFromBody(request));
 
+        ListRoute<Measurable> findByRatingIdSelectorRoute = (request, response)
+                -> measurableService.findByRatingIdSelector(readIdSelectionOptionsFromBody(request));
+
         ListRoute<Measurable> searchRoute = (request, response)
                 -> measurableService.search(request.params("query"));
 
@@ -72,13 +77,18 @@ public class MeasurableEndpoint implements Endpoint {
         ListRoute<Measurable> findByOrgUnitIdRoute = (request, response)
                 -> measurableService.findByOrgUnitId(getId(request));
 
+        ListRoute<Measurable> findByParentIdRoute = (request, response)
+                -> measurableService.findByParentId(getId(request));
+
 
         getForList(findAllPath, findAllRoute);
         getForList(findByExternalIdPath, findByExternalIdRoute);
         postForList(findByMeasurableIdSelectorPath, findByMeasurableIdSelectorRoute);
+        postForList(findByRatingIdSelectorPath, findByRatingIdSelectorRoute);
         getForDatum(getByIdPath, getByIdRoute);
         getForList(searchPath, searchRoute);
         getForList(findByOrgUnitIdPath, findByOrgUnitIdRoute);
+        getForList(findByParentIdPath, findByParentIdRoute);
     }
 
 }

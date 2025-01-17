@@ -23,12 +23,23 @@ import org.finos.waltz.data.JooqUtilities;
 import org.finos.waltz.model.Criticality;
 import org.finos.waltz.model.EntityKind;
 import org.finos.waltz.model.EntityLifecycleStatus;
-import org.finos.waltz.model.application.*;
+import org.finos.waltz.model.application.AppRegistrationRequest;
+import org.finos.waltz.model.application.AppRegistrationResponse;
+import org.finos.waltz.model.application.Application;
+import org.finos.waltz.model.application.ApplicationKind;
+import org.finos.waltz.model.application.ImmutableAppRegistrationResponse;
+import org.finos.waltz.model.application.ImmutableApplication;
+import org.finos.waltz.model.application.LifecyclePhase;
 import org.finos.waltz.model.external_identifier.ExternalIdValue;
 import org.finos.waltz.model.rating.RagRating;
 import org.finos.waltz.model.tally.Tally;
 import org.finos.waltz.schema.tables.records.ApplicationRecord;
-import org.jooq.*;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.Record;
+import org.jooq.Record1;
+import org.jooq.RecordMapper;
+import org.jooq.Select;
 import org.jooq.exception.DataAccessException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -90,7 +101,8 @@ public class ApplicationDao {
 
 
     public Application getById(long id) {
-        return dsl.select()
+        return dsl
+                .select(APPLICATION.fields())
                 .from(APPLICATION)
                 .where(APPLICATION.ID.eq(id))
                 .fetchOne(TO_DOMAIN_MAPPER);
@@ -99,14 +111,15 @@ public class ApplicationDao {
 
     public List<Application> findAll() {
         return dsl
-                .select()
+                .select(APPLICATION.fields())
                 .from(APPLICATION)
                 .fetch(TO_DOMAIN_MAPPER);
     }
 
 
     public List<Application> findByIds(Collection<Long> ids) {
-        return dsl.select()
+        return dsl
+                .select(APPLICATION.fields())
                 .from(APPLICATION)
                 .where(APPLICATION.ID.in(ids))
                 .fetch(TO_DOMAIN_MAPPER);

@@ -27,6 +27,11 @@ export function store($http, BaseApiUrl) {
         .get(`${BASE}/${id}`)
         .then(r => r.data);
 
+
+    const getByExternalId = (externalId) => $http
+        .get(`${BASE}/external-id/${externalId}`)
+        .then(r => r.data);
+
     const findBySelector = (options) => {
         checkIsIdSelector(options);
         return $http
@@ -69,6 +74,13 @@ export function store($http, BaseApiUrl) {
     };
 
 
+    const getViewForSelector = (selector) => {
+        return $http
+            .post(`${BASE}/view`, selector)
+            .then(result => result.data);
+    };
+
+
     // --- STATS ---
     const calculateStats = (options) => {
         checkIsIdSelector(options);
@@ -84,6 +96,10 @@ export function store($http, BaseApiUrl) {
     // --- UPDATERS ---
     const removeFlow = (id) => $http
         .delete(`${BASE}/${id}`)
+        .then(r => r.data);
+
+    const restoreFlow = (id) => $http
+        .put(`${BASE}/${id}/restore`)
         .then(r => r.data);
 
     const addFlow = (addFlowCmd) => $http
@@ -110,22 +126,30 @@ export function store($http, BaseApiUrl) {
         .get(`${BASE}/cleanup-self-references`)
         .then(r => r.data);
 
+    const updateReadOnly = (updateReadOnlyCmd, id) => $http
+        .post(`${BASE}/update/read-only/${id}`, updateReadOnlyCmd)
+        .then(r => r.data);
+
     return {
         findBySelector,
         findByIds,
         findByEntityReference,
         findBySourceAndTargetEntityReferences,
         findUpstreamFlowsForEntityReferences,
+        getViewForSelector,
         calculateStats,
         countByDataType,
         removeFlow,
+        restoreFlow,
         getById,
+        getByExternalId,
         addFlow,
         addFlows,
         findPermissionsForParentRef,
         findPermissionsForFlow,
         cleanupOrphans,
-        cleanupSelfReferences
+        cleanupSelfReferences,
+        updateReadOnly
     };
 }
 
@@ -168,6 +192,11 @@ export const LogicalFlowStore_API = {
         serviceFnName: "findUpstreamFlowsForEntityReferences",
         description: "findUpstreamFlowsForEntityReferences - given a list of entity reference returns all flows feeding any of those apps"
     },
+    getViewForSelector: {
+        serviceName,
+        serviceFnName: "getViewForSelector",
+        description: "getViewForSelector - given a selector returns flow information and associated primary assessments"
+    },
     calculateStats: {
         serviceName,
         serviceFnName: "calculateStats",
@@ -183,10 +212,20 @@ export const LogicalFlowStore_API = {
         serviceFnName: "removeFlow",
         description: "removes a single logical flow"
     },
+    restoreFlow: {
+        serviceName,
+        serviceFnName: "restoreFlow",
+        description: "restore a single logical flow"
+    },
     getById: {
         serviceName,
         serviceFnName: "getById",
         description: "retrieve a single logical flow (or null) given an id"
+    },
+    getByExternalId: {
+        serviceName,
+        serviceFnName: "getByExternalId",
+        description: "retrieve a single logical flow (or null) given an external id"
     },
     addFlow: {
         serviceName,
@@ -217,6 +256,11 @@ export const LogicalFlowStore_API = {
         serviceName,
         serviceFnName: "cleanupSelfReferences",
         description: "mark flows as removed where the flow source and target are the same"
+    },
+    updateReadOnly: {
+        serviceName,
+        serviceFnName: "updateReadOnly",
+        description: "update whether a logical flow is read only or editable"
     },
 };
 

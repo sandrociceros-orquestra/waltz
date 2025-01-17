@@ -3,10 +3,12 @@
     import AutoComplete from "simple-svelte-autocomplete";
     import {createEventDispatcher} from "svelte";
     import _ from "lodash";
+    import EntityLabel from "./EntityLabel.svelte";
 
     export let entityKinds;
     export let placeholder = "Search...";
     export let showClear = true;
+    export let showIcon = true;
     export let selectionFilter = () => true;
 
     const dispatch = createEventDispatcher();
@@ -31,4 +33,12 @@
               localFiltering={false}
               {placeholder}
               {showClear}
-              bind:selectedItem={selectedItem} />
+              className="waltz-search-input"
+              bind:selectedItem={selectedItem}>
+    <div slot="item"
+         let:item
+         let:label>
+        <EntityLabel {showIcon}
+                     ref={item}/>
+    </div>
+</AutoComplete>

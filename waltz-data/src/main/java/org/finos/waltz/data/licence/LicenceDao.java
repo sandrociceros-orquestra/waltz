@@ -19,13 +19,22 @@
 package org.finos.waltz.data.licence;
 
 
-import org.finos.waltz.schema.tables.records.LicenceRecord;
+import org.finos.waltz.common.DateTimeUtilities;
 import org.finos.waltz.data.JooqUtilities;
 import org.finos.waltz.model.UserTimestamp;
 import org.finos.waltz.model.licence.ImmutableLicence;
 import org.finos.waltz.model.licence.Licence;
+import org.finos.waltz.model.licence.SaveLicenceCommand;
 import org.finos.waltz.model.tally.Tally;
-import org.jooq.*;
+import org.finos.waltz.schema.tables.records.LicenceRecord;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record;
+import org.jooq.Record1;
+import org.jooq.Record2;
+import org.jooq.RecordMapper;
+import org.jooq.Select;
+import org.jooq.Table;
 import org.jooq.exception.NoDataFoundException;
 import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,10 +42,10 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 
+import static org.finos.waltz.common.Checks.checkNotNull;
 import static org.finos.waltz.schema.tables.Licence.LICENCE;
 import static org.finos.waltz.schema.tables.SoftwareUsage.SOFTWARE_USAGE;
 import static org.finos.waltz.schema.tables.SoftwareVersionLicence.SOFTWARE_VERSION_LICENCE;
-import static org.finos.waltz.common.Checks.checkNotNull;
 
 
 @Repository
@@ -126,5 +135,37 @@ public class LicenceDao {
                 appLicences,
                 licenceId,
                 DSL.trueCondition());
+    }
+
+    public boolean save(SaveLicenceCommand cmd, String username) {
+
+        LicenceRecord licenceRecord = dsl.newRecord(LICENCE);
+
+        licenceRecord.setName(cmd.name());
+        licenceRecord.setDescription(cmd.description());
+        licenceRecord.setLastUpdatedAt(DateTimeUtilities.nowUtcTimestamp());
+        licenceRecord.setLastUpdatedBy(username);
+        licenceRecord.setProvenance("waltz");
+
+        if (cmd.id().isPresent()) {
+            licenceRecord.setId(cmd.id().get());
+            licenceRecord.changed(LICENCE.ID, false);
+        } else {
+            licenceRecord.setCreatedAt(DateTimeUtilities.nowUtcTimestamp());
+            licenceRecord.setCreatedBy(username);
+        }
+
+        cmd.externalId().ifPresent(licenceRecord::setExternalId);
+
+        int stored = licenceRecord.store();
+
+        return stored == 1;
+    }
+
+    public boolean remove(long licenceId) {
+        return dsl
+                .deleteFrom(LICENCE)
+                .where(LICENCE.ID.eq(licenceId))
+                .execute() == 1;
     }
 }

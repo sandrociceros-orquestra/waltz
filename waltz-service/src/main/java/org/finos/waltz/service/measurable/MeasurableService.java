@@ -18,6 +18,8 @@
 
 package org.finos.waltz.service.measurable;
 
+import org.finos.waltz.data.measurable_rating.MeasurableRatingIdSelectorFactory;
+import org.finos.waltz.model.measurable.MeasurableHierarchy;
 import org.finos.waltz.service.changelog.ChangeLogService;
 import org.finos.waltz.common.DateTimeUtilities;
 import org.finos.waltz.common.StringUtilities;
@@ -40,6 +42,7 @@ import java.util.function.Function;
 import static java.lang.String.format;
 import static java.util.Optional.ofNullable;
 import static org.finos.waltz.common.Checks.checkNotNull;
+import static org.finos.waltz.common.ListUtilities.isEmpty;
 import static org.finos.waltz.model.EntityReference.mkRef;
 
 
@@ -48,6 +51,7 @@ public class MeasurableService {
 
     private final MeasurableDao measurableDao;
     private final MeasurableIdSelectorFactory measurableIdSelectorFactory = new MeasurableIdSelectorFactory();
+    private final MeasurableRatingIdSelectorFactory measurableRatingIdSelectorFactory = new MeasurableRatingIdSelectorFactory();
     private final MeasurableSearchDao measurableSearchDao;
     private final ChangeLogService changeLogService;
     private final EntityReferenceNameResolver nameResolver;
@@ -75,15 +79,39 @@ public class MeasurableService {
     }
 
 
+
     public List<Measurable> findByMeasurableIdSelector(IdSelectionOptions options) {
         checkNotNull(options, "options cannot be null");
         Select<Record1<Long>> selector = measurableIdSelectorFactory.apply(options);
         return measurableDao.findByMeasurableIdSelector(selector);
     }
 
+    /**
+     * Returns measurables linked to a collection of rating ids. Differs from findByMeasurableIdSelector,
+     * as always implicitly uses a joining kind, but without being restricted to a single entity kind
+     * @param options selection options for the measurable rating selector
+     * @return set of measurables
+     */
+    public Set<Measurable> findByRatingIdSelector(IdSelectionOptions options) {
+        checkNotNull(options, "options cannot be null");
+        Select<Record1<Long>> selector = measurableRatingIdSelectorFactory.apply(options);
+        return measurableDao.findByRatingIdSelector(selector);
+    }
+
 
     public List<Measurable> findByCategoryId(Long categoryId) {
         return measurableDao.findByCategoryId(categoryId);
+    }
+
+    /**
+     * returns all measurables for a given category which match the supplied list of statuses
+     */
+    public List<Measurable> findByCategoryId(Long categoryId, Set<EntityLifecycleStatus> statuses) {
+        return measurableDao.findByCategoryId(categoryId, statuses);
+    }
+
+    public List<Measurable> findByParentId(Long parentId) {
+        return measurableDao.findByParentId(parentId);
     }
 
 
@@ -187,6 +215,30 @@ public class MeasurableService {
     }
 
 
+    public boolean reorder(long categoryId,
+                           List<Long> ids,
+                           String userId) {
+        if (isEmpty(ids)) {
+            return true;
+        }
+
+        measurableDao.reorder(
+                categoryId,
+                ids,
+                userId);
+
+        changeLogService.write(ImmutableChangeLog.builder()
+                .severity(Severity.INFORMATION)
+                .userId(userId)
+                .operation(Operation.UPDATE)
+                .parentReference(mkRef(EntityKind.MEASURABLE_CATEGORY, categoryId))
+                .createdAt(DateTimeUtilities.nowUtc())
+                .message(format("Reordered %d measurables", ids.size()))
+                .build());
+
+        return true;
+    }
+
     // --- helpers ---
 
     private void logUpdate(long id, String valueName, String newValue, Function<Measurable, Optional<String>> valueExtractor, String userId) {
@@ -224,4 +276,11 @@ public class MeasurableService {
                 .build());
     }
 
+    public boolean moveChildren(Long measurableId, Long targetMeasurableId, String userId) {
+        return measurableDao.moveChildren(measurableId, targetMeasurableId, userId);
+    }
+
+    public Set<MeasurableHierarchy> findHierarchyForCategory(long categoryId) {
+        return measurableDao.findHierarchyForCategory(categoryId);
+    }
 }

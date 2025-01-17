@@ -19,12 +19,25 @@
 package org.finos.waltz.data.logical_flow;
 
 import org.finos.waltz.data.InlineSelectFieldFactory;
-import org.finos.waltz.model.*;
+import org.finos.waltz.model.EntityKind;
+import org.finos.waltz.model.EntityLifecycleStatus;
+import org.finos.waltz.model.EntityReference;
+import org.finos.waltz.model.ImmutableEntityReference;
+import org.finos.waltz.model.Operation;
+import org.finos.waltz.model.UserTimestamp;
 import org.finos.waltz.model.logical_flow.ImmutableLogicalFlow;
 import org.finos.waltz.model.logical_flow.LogicalFlow;
 import org.finos.waltz.model.user.SystemRole;
 import org.finos.waltz.schema.tables.records.LogicalFlowRecord;
-import org.jooq.*;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record;
+import org.jooq.Record1;
+import org.jooq.RecordMapper;
+import org.jooq.Select;
+import org.jooq.SelectJoinStep;
+import org.jooq.UpdateConditionStep;
 import org.jooq.impl.DSL;
 import org.jooq.lambda.tuple.Tuple2;
 import org.slf4j.Logger;
@@ -33,7 +46,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
 import java.sql.Timestamp;
-import java.util.*;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
@@ -67,13 +85,23 @@ public class LogicalFlowDao {
     private static final Field<String> SOURCE_NAME_FIELD = InlineSelectFieldFactory.mkNameField(
             LOGICAL_FLOW.SOURCE_ENTITY_ID,
             LOGICAL_FLOW.SOURCE_ENTITY_KIND,
-            newArrayList(EntityKind.APPLICATION, EntityKind.ACTOR));
+            newArrayList(EntityKind.APPLICATION, EntityKind.ACTOR, EntityKind.END_USER_APPLICATION));
 
 
     private static final Field<String> TARGET_NAME_FIELD = InlineSelectFieldFactory.mkNameField(
             LOGICAL_FLOW.TARGET_ENTITY_ID,
             LOGICAL_FLOW.TARGET_ENTITY_KIND,
-            newArrayList(EntityKind.APPLICATION, EntityKind.ACTOR));
+            newArrayList(EntityKind.APPLICATION, EntityKind.ACTOR, EntityKind.END_USER_APPLICATION));
+
+    private static final Field<String> SOURCE_EXTERNAL_ID_FIELD = InlineSelectFieldFactory.mkExternalIdField(
+            LOGICAL_FLOW.SOURCE_ENTITY_ID,
+            LOGICAL_FLOW.SOURCE_ENTITY_KIND,
+            newArrayList(EntityKind.APPLICATION, EntityKind.ACTOR, EntityKind.END_USER_APPLICATION));
+
+    private static final Field<String> TARGET_EXTERNAL_ID_FIELD = InlineSelectFieldFactory.mkExternalIdField(
+            LOGICAL_FLOW.TARGET_ENTITY_ID,
+            LOGICAL_FLOW.TARGET_ENTITY_KIND,
+            newArrayList(EntityKind.APPLICATION, EntityKind.ACTOR, EntityKind.END_USER_APPLICATION));
 
 
     public static final RecordMapper<Record, LogicalFlow> TO_DOMAIN_MAPPER = r -> {
@@ -81,15 +109,18 @@ public class LogicalFlowDao {
 
         return ImmutableLogicalFlow.builder()
                 .id(record.getId())
+                .externalId(record.getExternalId())
                 .source(ImmutableEntityReference.builder()
                         .kind(EntityKind.valueOf(record.getSourceEntityKind()))
                         .id(record.getSourceEntityId())
                         .name(ofNullable(r.getValue(SOURCE_NAME_FIELD)))
+                        .externalId(ofNullable(r.getValue(SOURCE_EXTERNAL_ID_FIELD)))
                         .build())
                 .target(ImmutableEntityReference.builder()
                         .kind(EntityKind.valueOf(record.getTargetEntityKind()))
                         .id(record.getTargetEntityId())
                         .name(ofNullable(r.getValue(TARGET_NAME_FIELD)))
+                        .externalId(ofNullable(r.getValue(TARGET_EXTERNAL_ID_FIELD)))
                         .build())
                 .entityLifecycleStatus(readEnum(record.getEntityLifecycleStatus(), EntityLifecycleStatus.class, s -> EntityLifecycleStatus.ACTIVE))
                 .lastUpdatedBy(record.getLastUpdatedBy())
@@ -120,6 +151,7 @@ public class LogicalFlowDao {
         record.setCreatedBy(flow.created().map(UserTimestamp::by).orElse(flow.lastUpdatedBy()));
         record.setIsReadonly(flow.isReadOnly());
         record.setIsRemoved(flow.isRemoved());
+        flow.externalId().ifPresent(record::setExternalId);
         return record;
     };
 
@@ -136,6 +168,13 @@ public class LogicalFlowDao {
     public LogicalFlowDao(DSLContext dsl) {
         checkNotNull(dsl, "dsl must not be null");
         this.dsl = dsl;
+    }
+
+
+    public LogicalFlow getByFlowExternalId(String externalId) {
+        return baseQuery()
+                .where(LOGICAL_FLOW.EXTERNAL_ID.eq(externalId))
+                .fetchOne(TO_DOMAIN_MAPPER);
     }
 
 
@@ -307,6 +346,16 @@ public class LogicalFlowDao {
                 .fetchOne(TO_DOMAIN_MAPPER);
     }
 
+    public long updateReadOnly(long flowId, boolean isReadOnly, String user) {
+        return dsl
+            .update(LOGICAL_FLOW)
+            .set(LOGICAL_FLOW.IS_READONLY, isReadOnly)
+            .set(LOGICAL_FLOW.LAST_UPDATED_AT, Timestamp.valueOf(nowUtc()))
+                .set(LOGICAL_FLOW.LAST_UPDATED_BY, user)
+            .where(LOGICAL_FLOW.ID.eq(flowId))
+            .execute();
+    }
+
 
     public List<LogicalFlow> findAllActive() {
         return baseQuery()
@@ -413,6 +462,7 @@ public class LogicalFlowDao {
         return dsl
                 .select(LOGICAL_FLOW.fields())
                 .select(SOURCE_NAME_FIELD, TARGET_NAME_FIELD)
+                .select(SOURCE_EXTERNAL_ID_FIELD, TARGET_EXTERNAL_ID_FIELD)
                 .from(LOGICAL_FLOW);
     }
 
@@ -464,4 +514,5 @@ public class LogicalFlowDao {
             return operationsForFlow;
         }
     }
+
 }

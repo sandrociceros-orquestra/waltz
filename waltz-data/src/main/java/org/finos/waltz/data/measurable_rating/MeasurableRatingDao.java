@@ -18,27 +18,55 @@
 
 package org.finos.waltz.data.measurable_rating;
 
+import org.finos.waltz.common.DateTimeUtilities;
 import org.finos.waltz.common.exception.NotFoundException;
+import org.finos.waltz.data.GenericSelector;
 import org.finos.waltz.data.InlineSelectFieldFactory;
 import org.finos.waltz.data.JooqUtilities;
 import org.finos.waltz.data.SelectorUtilities;
-import org.finos.waltz.model.*;
+import org.finos.waltz.model.EntityKind;
+import org.finos.waltz.model.EntityLifecycleStatus;
+import org.finos.waltz.model.EntityReference;
+import org.finos.waltz.model.IdSelectionOptions;
+import org.finos.waltz.model.ImmutableEntityReference;
+import org.finos.waltz.model.Operation;
+import org.finos.waltz.model.Severity;
 import org.finos.waltz.model.measurable_rating.ImmutableMeasurableRating;
 import org.finos.waltz.model.measurable_rating.MeasurableRating;
+import org.finos.waltz.model.measurable_rating.MeasurableRatingChangeSummary;
 import org.finos.waltz.model.measurable_rating.RemoveMeasurableRatingCommand;
 import org.finos.waltz.model.measurable_rating.SaveMeasurableRatingCommand;
 import org.finos.waltz.model.tally.ImmutableMeasurableRatingTally;
 import org.finos.waltz.model.tally.MeasurableRatingTally;
 import org.finos.waltz.model.tally.Tally;
 import org.finos.waltz.schema.Tables;
+import org.finos.waltz.schema.tables.records.AllocationRecord;
+import org.finos.waltz.schema.tables.records.MeasurableRatingPlannedDecommissionRecord;
 import org.finos.waltz.schema.tables.records.MeasurableRatingRecord;
-import org.jooq.*;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record;
+import org.jooq.Record1;
+import org.jooq.Record2;
+import org.jooq.Record3;
+import org.jooq.Record9;
+import org.jooq.RecordMapper;
+import org.jooq.Select;
+import org.jooq.SelectConditionStep;
+import org.jooq.SelectHavingStep;
+import org.jooq.SelectJoinStep;
+import org.jooq.SelectOrderByStep;
+import org.jooq.UpdateConditionStep;
 import org.jooq.impl.DSL;
 import org.jooq.lambda.tuple.Tuple2;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
 import java.sql.Timestamp;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -55,7 +83,11 @@ import static org.finos.waltz.common.SetUtilities.asSet;
 import static org.finos.waltz.common.SetUtilities.union;
 import static org.finos.waltz.common.StringUtilities.firstChar;
 import static org.finos.waltz.common.StringUtilities.notEmpty;
+import static org.finos.waltz.schema.Tables.ALLOCATION;
+import static org.finos.waltz.schema.Tables.CHANGE_LOG;
 import static org.finos.waltz.schema.Tables.MEASURABLE_CATEGORY;
+import static org.finos.waltz.schema.Tables.MEASURABLE_RATING_PLANNED_DECOMMISSION;
+import static org.finos.waltz.schema.Tables.RATING_SCHEME_ITEM;
 import static org.finos.waltz.schema.Tables.USER_ROLE;
 import static org.finos.waltz.schema.tables.Application.APPLICATION;
 import static org.finos.waltz.schema.tables.Measurable.MEASURABLE;
@@ -65,19 +97,40 @@ import static org.jooq.lambda.tuple.Tuple.tuple;
 @Repository
 public class MeasurableRatingDao {
 
+    private static final Logger LOG = LoggerFactory.getLogger(MeasurableRatingDao.class);
+
     private static final Condition APP_JOIN_CONDITION = APPLICATION.ID.eq(MEASURABLE_RATING.ENTITY_ID)
             .and(MEASURABLE_RATING.ENTITY_KIND.eq(EntityKind.APPLICATION.name()));
 
+    private static final ArrayList<EntityKind> SUPPORTED_ENTITY_KINDS = newArrayList(
+            EntityKind.APPLICATION,
+            EntityKind.END_USER_APPLICATION,
+            EntityKind.ACTOR,
+            EntityKind.CHANGE_INITIATIVE);
+
     private static final Field<String> ENTITY_NAME_FIELD = InlineSelectFieldFactory.mkNameField(
-            MEASURABLE_RATING.ENTITY_ID,
-            MEASURABLE_RATING.ENTITY_KIND,
-            newArrayList(EntityKind.values()))
-        .as("entity_name");
+                    MEASURABLE_RATING.ENTITY_ID,
+                    MEASURABLE_RATING.ENTITY_KIND,
+                    SUPPORTED_ENTITY_KINDS)
+            .as("entity_name");
 
     private static final Field<String> ENTITY_LIFECYCLE_FIELD = InlineSelectFieldFactory.mkEntityLifecycleField(
-            MEASURABLE_RATING.ENTITY_ID,
-            MEASURABLE_RATING.ENTITY_KIND)
+                    MEASURABLE_RATING.ENTITY_ID,
+                    MEASURABLE_RATING.ENTITY_KIND,
+                    SUPPORTED_ENTITY_KINDS)
             .as("entity_lifecycle_status");
+
+    private static final Field<String> ENTITY_DESCRIPTION_FIELD = InlineSelectFieldFactory.mkDescriptionField(
+                    MEASURABLE_RATING.ENTITY_ID,
+                    MEASURABLE_RATING.ENTITY_KIND,
+                    SUPPORTED_ENTITY_KINDS)
+            .as("entity_description");
+
+    private static final Field<String> ENTITY_EXT_ID_FIELD = InlineSelectFieldFactory.mkExternalIdField(
+                    MEASURABLE_RATING.ENTITY_ID,
+                    MEASURABLE_RATING.ENTITY_KIND,
+                    SUPPORTED_ENTITY_KINDS)
+            .as("entity_ext_id");
 
 
     private static final RecordMapper<? super Record, MeasurableRating> TO_DOMAIN_MAPPER = record -> {
@@ -88,9 +141,14 @@ public class MeasurableRatingDao {
                 .id(r.getEntityId())
                 .name(Optional.ofNullable(record.get(ENTITY_NAME_FIELD)))
                 .entityLifecycleStatus(readEnum(record.get(ENTITY_LIFECYCLE_FIELD), EntityLifecycleStatus.class, (s) -> EntityLifecycleStatus.REMOVED))
+                .description(record.get(ENTITY_DESCRIPTION_FIELD))
+                .externalId(Optional.ofNullable(record.get(ENTITY_EXT_ID_FIELD)))
                 .build();
 
+        Long ratingId = record.get(RATING_SCHEME_ITEM.ID);
+
         return ImmutableMeasurableRating.builder()
+                .id(r.getId())
                 .entityReference(ref)
                 .description(r.getDescription())
                 .provenance(r.getProvenance())
@@ -99,6 +157,8 @@ public class MeasurableRatingDao {
                 .lastUpdatedAt(toLocalDateTime(r.getLastUpdatedAt()))
                 .lastUpdatedBy(r.getLastUpdatedBy())
                 .isReadOnly(r.getIsReadonly())
+                .isPrimary(r.getIsPrimary())
+                .ratingId(ratingId)
                 .build();
     };
 
@@ -125,6 +185,7 @@ public class MeasurableRatingDao {
         record.setLastUpdatedAt(Timestamp.valueOf(command.lastUpdate().at()));
         record.setLastUpdatedBy(command.lastUpdate().by());
         record.setProvenance(command.provenance());
+        record.setIsPrimary(command.isPrimary());
         return record;
     };
 
@@ -153,6 +214,7 @@ public class MeasurableRatingDao {
                     .set(MEASURABLE_RATING.LAST_UPDATED_BY, command.lastUpdate().by())
                     .set(MEASURABLE_RATING.LAST_UPDATED_AT, command.lastUpdate().atTimestamp())
                     .set(MEASURABLE_RATING.PROVENANCE, command.provenance())
+                    .set(MEASURABLE_RATING.IS_PRIMARY, command.isPrimary())
                     .where(MEASURABLE_RATING.ENTITY_ID.eq(command.entityReference().id()))
                     .and(MEASURABLE_RATING.ENTITY_KIND.eq(command.entityReference().kind().name()))
                     .and(MEASURABLE_RATING.MEASURABLE_ID.eq(command.measurableId()))
@@ -165,7 +227,7 @@ public class MeasurableRatingDao {
                 throw new NotFoundException(
                         "MR_SAVE_UPDATE_FAILED",
                         format("Could find writable associated record to update for rating: %s", command));
-            };
+            }
             return Operation.UPDATE;
         } else {
             if (dsl.executeInsert(record) != 1) {
@@ -173,7 +235,7 @@ public class MeasurableRatingDao {
                         "MR_SAVE_INSERT_FAILED",
                         format("Creation of record failed: %s", command));
             }
-            ;
+
             return Operation.ADD;
         }
     }
@@ -206,9 +268,47 @@ public class MeasurableRatingDao {
     public List<MeasurableRating> findForEntity(EntityReference ref) {
         checkNotNull(ref, "ref cannot be null");
         return mkBaseQuery()
-                .where(MEASURABLE_RATING.ENTITY_KIND.eq(EntityKind.APPLICATION.name()))
+                .where(MEASURABLE_RATING.ENTITY_KIND.eq(ref.kind().name()))
                 .and(MEASURABLE_RATING.ENTITY_ID.eq(ref.id()))
                 .fetch(TO_DOMAIN_MAPPER);
+    }
+
+
+    /*
+     * Should move to using a measurable rating id selector
+     */
+    @Deprecated
+    public List<MeasurableRating> findForCategoryAndSubjectIdSelector(Select<Record1<Long>> subjectIdSelector, long categoryId) {
+        return mkExtendedBaseQuery()
+                .where(dsl.renderInlined(MEASURABLE_CATEGORY.ID.eq(categoryId)
+                                .and(MEASURABLE_RATING.ENTITY_KIND.eq(EntityKind.APPLICATION.name())
+                                        .and(MEASURABLE_RATING.ENTITY_ID.in(subjectIdSelector)))))
+                .fetch(TO_DOMAIN_MAPPER);
+    }
+
+
+    public List<MeasurableRating> findForCategoryAndMeasurableRatingIdSelector(Select<Record1<Long>> ratingIdSelector, long categoryId) {
+        SelectConditionStep<Record> q = mkExtendedBaseQuery()
+                .where(dsl.renderInlined(MEASURABLE_CATEGORY.ID.eq(categoryId)
+                        .and(MEASURABLE_RATING.ID.in(ratingIdSelector))));
+        return q
+                .fetch(TO_DOMAIN_MAPPER);
+    }
+
+    public MeasurableRating getById(long id) {
+        return mkBaseQuery()
+                .where(MEASURABLE_RATING.ID.eq(id))
+                .fetchOne(TO_DOMAIN_MAPPER);
+    }
+
+
+
+    public MeasurableRating getByDecommId(long decommId) {
+        return mkBaseQuery()
+                .innerJoin(MEASURABLE_RATING_PLANNED_DECOMMISSION)
+                .on(MEASURABLE_RATING_PLANNED_DECOMMISSION.MEASURABLE_RATING_ID.eq(MEASURABLE_RATING.ID))
+                .where(MEASURABLE_RATING_PLANNED_DECOMMISSION.ID.eq(decommId))
+                .fetchOne(TO_DOMAIN_MAPPER);
     }
 
 
@@ -264,34 +364,23 @@ public class MeasurableRatingDao {
     }
 
 
-    public List<MeasurableRatingTally> statsByAppSelector(Select<Record1<Long>> selector) {
-        return dsl.select(MEASURABLE_RATING.MEASURABLE_ID, MEASURABLE_RATING.RATING, DSL.count())
+    public List<MeasurableRatingTally> statsByMeasurableRatingIdSelector(Select<Record1<Long>> ratingIdSelector,
+                                                                         boolean primaryOnly) {
+        Condition cond = MEASURABLE_CATEGORY.ALLOW_PRIMARY_RATINGS.isFalse()
+                .or(primaryOnly
+                        ? MEASURABLE_RATING.IS_PRIMARY.isTrue()
+                        : DSL.trueCondition());
+
+        SelectHavingStep<Record3<Long, String, Integer>> q = dsl
+                .select(MEASURABLE_RATING.MEASURABLE_ID, MEASURABLE_RATING.RATING, DSL.count())
                 .from(MEASURABLE_RATING)
-                .where(dsl.renderInlined(MEASURABLE_RATING.ENTITY_KIND.eq(EntityKind.APPLICATION.name())
-                .and(MEASURABLE_RATING.ENTITY_ID.in(selector))))
-                .groupBy(MEASURABLE_RATING.MEASURABLE_ID, MEASURABLE_RATING.RATING)
-                .fetch(TO_TALLY_MAPPER);
-    }
+                .innerJoin(MEASURABLE).on(MEASURABLE.ID.eq(MEASURABLE_RATING.MEASURABLE_ID))
+                .innerJoin(MEASURABLE_CATEGORY).on(MEASURABLE_CATEGORY.ID.eq(MEASURABLE.MEASURABLE_CATEGORY_ID))
+                .where(dsl.renderInlined(MEASURABLE_RATING.ID.in(ratingIdSelector)
+                        .and(cond)))
+                .groupBy(MEASURABLE_RATING.MEASURABLE_ID, MEASURABLE_RATING.RATING);
 
-
-    public List<MeasurableRatingTally> statsForRelatedMeasurable(Select<Record1<Long>> selector) {
-        org.finos.waltz.schema.tables.MeasurableRating related = MEASURABLE_RATING.as("related");
-        org.finos.waltz.schema.tables.MeasurableRating orig = MEASURABLE_RATING.as("orig");
-
-        SelectConditionStep<Record1<Long>> relatedAppIds = DSL
-                .selectDistinct(orig.ENTITY_ID)
-                .from(orig)
-                .where(orig.MEASURABLE_ID.in(selector))
-                .and(orig.ENTITY_KIND.eq(EntityKind.APPLICATION.name()));
-
-        return dsl
-                .select(related.MEASURABLE_ID,
-                        related.RATING,
-                        DSL.count())
-                .from(related)
-                .where(related.ENTITY_ID.in(relatedAppIds))
-                .groupBy(related.MEASURABLE_ID,
-                        related.RATING)
+        return q
                 .fetch(TO_TALLY_MAPPER);
     }
 
@@ -319,6 +408,18 @@ public class MeasurableRatingDao {
                 .execute();
     }
 
+    /**
+     * Given a measurable and a ratingIdSelector, will determine if any other measurables are mapped by apps
+     * which map to this measurable.  This is used to provide functionality for features like: "apps that
+     * do this function, also do these functions..."
+     *
+     * @param ratingIdSelector     set of ratingIds to consider, these will be mapped back to their entities
+     * @return boolean indicating if there are implicitly related measurables
+     */
+    public boolean hasMeasurableRatings(Select<Record1<Long>> ratingIdSelector) {
+        return dsl.fetchExists(ratingIdSelector);
+    }
+
 
     // --- utils
 
@@ -327,8 +428,27 @@ public class MeasurableRatingDao {
                 .select(MEASURABLE_RATING.fields())
                 .select(ENTITY_NAME_FIELD)
                 .select(ENTITY_LIFECYCLE_FIELD)
+                .select(ENTITY_DESCRIPTION_FIELD)
+                .select(ENTITY_EXT_ID_FIELD)
                 .from(MEASURABLE_RATING);
     }
+
+
+    private SelectJoinStep<Record> mkExtendedBaseQuery() {
+        return dsl
+                .select(MEASURABLE_RATING.fields())
+                .select(ENTITY_NAME_FIELD)
+                .select(ENTITY_LIFECYCLE_FIELD)
+                .select(ENTITY_DESCRIPTION_FIELD)
+                .select(ENTITY_EXT_ID_FIELD)
+                .select(RATING_SCHEME_ITEM.ID)
+                .from(MEASURABLE_RATING)
+                .innerJoin(MEASURABLE).on(MEASURABLE_RATING.MEASURABLE_ID.eq(MEASURABLE.ID))
+                .innerJoin(MEASURABLE_CATEGORY).on(MEASURABLE.MEASURABLE_CATEGORY_ID.eq(MEASURABLE_CATEGORY.ID))
+                .innerJoin(RATING_SCHEME_ITEM).on(MEASURABLE_RATING.RATING.eq(RATING_SCHEME_ITEM.CODE)
+                        .and(MEASURABLE_CATEGORY.RATING_SCHEME_ID.eq(RATING_SCHEME_ITEM.SCHEME_ID)));
+    }
+
 
     public Set<Operation> calculateAmendedRatingOperations(Set<Operation> operationsForEntityAssessment,
                                                            EntityReference entityReference,
@@ -363,6 +483,7 @@ public class MeasurableRatingDao {
         }
     }
 
+
     public Set<Operation> calculateAmendedAllocationOperations(Set<Operation> operationsForAllocation,
                                                                long categoryId,
                                                                String username) {
@@ -380,6 +501,367 @@ public class MeasurableRatingDao {
         } else {
             return operationsForAllocation;
         }
+    }
 
+
+    /**
+     * Takes a source measurable and will move all ratings, decommission dates, replacement applications and allocations to the target measurable where possible.
+     * If a value already exists on the target the migration is ignored, or in the case of allocations, aggregated.
+     *
+     * @param measurableId the source measurable from which to migrate data
+     * @param targetId     the target measurable to inherit the data (where possible)
+     * @param userId       the user responsible for the change
+     */
+    public void migrateRatings(Long measurableId, Long targetId, String userId) {
+
+        if (targetId == null) {
+            throw new IllegalArgumentException("Cannot migrate ratings without specifying a new target");
+        }
+
+        LOG.info("Migrating ratings from measurable: {} to {}",
+                measurableId,
+                targetId);
+
+        int sharedRatingCount = getSharedRatingsCount(measurableId, targetId);
+        int sharedDecomCount = getSharedDecommsCount(measurableId, targetId);
+
+        dsl.transaction(ctx -> {
+
+            DSLContext tx = ctx.dsl();
+
+            // RATINGS
+
+            SelectOrderByStep<Record2<Long, String>> allowableMigrations = selectRatingsThatCanBeModified(measurableId, targetId);
+            // Do not update the measurable where an existing mapping already exists
+
+            SelectConditionStep<Record9<Long, String, Long, String, String, Timestamp, String, String, Boolean>> ratingsToInsert = DSL
+                    .select(Tables.MEASURABLE_RATING.ENTITY_ID,
+                            Tables.MEASURABLE_RATING.ENTITY_KIND,
+                            DSL.val(targetId),
+                            Tables.MEASURABLE_RATING.RATING,
+                            Tables.MEASURABLE_RATING.DESCRIPTION,
+                            Tables.MEASURABLE_RATING.LAST_UPDATED_AT,
+                            Tables.MEASURABLE_RATING.LAST_UPDATED_BY,
+                            Tables.MEASURABLE_RATING.PROVENANCE,
+                            Tables.MEASURABLE_RATING.IS_READONLY)
+                    .from(Tables.MEASURABLE_RATING)
+                    .innerJoin(allowableMigrations).on(Tables.MEASURABLE_RATING.ENTITY_ID.eq(allowableMigrations.field(Tables.MEASURABLE_RATING.ENTITY_ID))
+                            .and(Tables.MEASURABLE_RATING.ENTITY_KIND.eq(allowableMigrations.field(Tables.MEASURABLE_RATING.ENTITY_KIND))))
+                    .where(Tables.MEASURABLE_RATING.MEASURABLE_ID.eq(measurableId));
+
+            int migratedRatings = tx
+                    .insertInto(Tables.MEASURABLE_RATING)
+                    .columns(Tables.MEASURABLE_RATING.ENTITY_ID,
+                            Tables.MEASURABLE_RATING.ENTITY_KIND,
+                            Tables.MEASURABLE_RATING.MEASURABLE_ID,
+                            Tables.MEASURABLE_RATING.RATING,
+                            Tables.MEASURABLE_RATING.DESCRIPTION,
+                            Tables.MEASURABLE_RATING.LAST_UPDATED_AT,
+                            Tables.MEASURABLE_RATING.LAST_UPDATED_BY,
+                            Tables.MEASURABLE_RATING.PROVENANCE,
+                            Tables.MEASURABLE_RATING.IS_READONLY)
+                    .select(ratingsToInsert)
+                    .execute();
+
+            if (migratedRatings > 0) {
+                writeChangeLogForMerge(
+                        tx,
+                        targetId,
+                        EntityKind.MEASURABLE_RATING,
+                        Operation.UPDATE,
+                        format("Migrated %d ratings from measurable: %d to %d", migratedRatings, measurableId, targetId),
+                        userId);
+            }
+
+            if (sharedRatingCount > 0) {
+                writeChangeLogForMerge(
+                        tx,
+                        targetId,
+                        EntityKind.MEASURABLE_RATING,
+                        Operation.REMOVE,
+                        format("Failed to migrate %d ratings from measurable: %d to %d due to existing ratings on the target", sharedRatingCount, measurableId, targetId),
+                        userId);
+            }
+
+            // DECOMMS
+
+            // all ratings that can be migrated, decomms automatically updated.
+            // Need to find the ratings that cannot be migrated, then see if there is a target decom to match
+
+            org.finos.waltz.schema.tables.MeasurableRating srcMr = MEASURABLE_RATING.as("srcMr");
+            org.finos.waltz.schema.tables.MeasurableRating trgMr = MEASURABLE_RATING.as("trgMr");
+
+            org.finos.waltz.schema.tables.MeasurableRatingPlannedDecommission srcDecom = MEASURABLE_RATING_PLANNED_DECOMMISSION.as("srcDecom");
+            org.finos.waltz.schema.tables.MeasurableRatingPlannedDecommission trgDecom = MEASURABLE_RATING_PLANNED_DECOMMISSION.as("trgDecom");
+
+            Field<Long> srcDecomId = srcDecom.ID.as("srcDecomId");
+            Field<Long> trgRatingId = trgMr.ID.as("trgRatingId");
+
+            SelectConditionStep<Record2<Long, Long>> decomsToUpdate = DSL
+                    .select(srcDecomId, trgRatingId)
+                    .from(srcDecom)
+                    .innerJoin(srcMr).on(srcDecom.MEASURABLE_RATING_ID.eq(srcMr.ID).and(srcMr.MEASURABLE_ID.eq(measurableId)))
+                    .innerJoin(trgMr).on(srcMr.ENTITY_KIND.eq(trgMr.ENTITY_KIND).and(srcMr.ENTITY_ID.eq(trgMr.ENTITY_ID).and(trgMr.MEASURABLE_ID.eq(targetId))))
+                    .leftJoin(trgDecom).on(trgMr.ID.eq(trgDecom.MEASURABLE_RATING_ID))
+                    .where(trgDecom.ID.isNull());
+
+            UpdateConditionStep<MeasurableRatingPlannedDecommissionRecord> updateDecomQry = tx
+                    .update(MEASURABLE_RATING_PLANNED_DECOMMISSION)
+                    .set(MEASURABLE_RATING_PLANNED_DECOMMISSION.MEASURABLE_RATING_ID, decomsToUpdate.field(trgRatingId))
+                    .from(decomsToUpdate)
+                    .where(MEASURABLE_RATING_PLANNED_DECOMMISSION.ID.eq(decomsToUpdate.field(srcDecomId)));
+
+            int migratedDecoms = updateDecomQry.execute();
+
+            if (migratedDecoms > 0) {
+                writeChangeLogForMerge(
+                        tx,
+                        targetId,
+                        EntityKind.MEASURABLE_RATING_PLANNED_DECOMMISSION,
+                        Operation.UPDATE,
+                        format("Migrated %d decomms from measurable: %d to %d", migratedDecoms, measurableId, targetId),
+                        userId);
+            }
+
+            if (sharedDecomCount > 0) {
+                writeChangeLogForMerge(
+                        tx,
+                        targetId,
+                        EntityKind.MEASURABLE_RATING_PLANNED_DECOMMISSION,
+                        Operation.REMOVE,
+                        format("Failed to migrate %d decomms from measurable: %d to %d due to existing decomms on the target", sharedDecomCount, measurableId, targetId),
+                        userId);
+            }
+
+
+            // ALLOCATIONS
+
+
+            // Either automatically moved if measurable rating was moved,
+            // Migrated if existing measurable but no allocation
+            // Aggregated is existing allocation on target measurable
+
+            org.finos.waltz.schema.tables.Allocation srcAlloc = ALLOCATION.as("srcAlloc");
+            org.finos.waltz.schema.tables.Allocation trgAlloc = ALLOCATION.as("trgAlloc");
+
+            Field<Integer> totalAlloc = srcAlloc.ALLOCATION_PERCENTAGE.add(trgAlloc.ALLOCATION_PERCENTAGE).as("totalAlloc");
+            Field<Long> updateTargetAllocId = trgAlloc.ID.as("updateTargetAllocId");
+
+            SelectConditionStep<Record2<Long, Integer>> allocsToUpdate = DSL
+                    .select(updateTargetAllocId, totalAlloc)
+                    .from(srcAlloc)
+                    .innerJoin(srcMr).on(srcAlloc.MEASURABLE_RATING_ID.eq(srcMr.ID).and(srcMr.MEASURABLE_ID.eq(measurableId)))
+                    .innerJoin(trgMr).on(srcMr.ENTITY_KIND.eq(trgMr.ENTITY_KIND).and(srcMr.ENTITY_ID.eq(trgMr.ENTITY_ID).and(trgMr.MEASURABLE_ID.eq(targetId))))
+                    .leftJoin(trgAlloc).on(trgMr.ID.eq(trgAlloc.MEASURABLE_RATING_ID))
+                    .where(trgAlloc.ID.isNotNull());
+
+            Field<Long> migrateTargetAllocId = trgAlloc.ID.as("migrateTargetAllocId");
+            Field<Integer> allocPercentage = srcAlloc.ALLOCATION_PERCENTAGE.as("allocPercentage");
+
+            SelectConditionStep<Record2<Long, Integer>> allocsToMigrate = DSL
+                    .select(migrateTargetAllocId, allocPercentage)
+                    .from(srcAlloc)
+                    .innerJoin(srcMr).on(srcAlloc.MEASURABLE_RATING_ID.eq(srcMr.ID).and(srcMr.MEASURABLE_ID.eq(measurableId)))
+                    .innerJoin(trgMr).on(srcMr.ENTITY_KIND.eq(trgMr.ENTITY_KIND).and(srcMr.ENTITY_ID.eq(trgMr.ENTITY_ID).and(trgMr.MEASURABLE_ID.eq(targetId))))
+                    .leftJoin(trgAlloc).on(trgMr.ID.eq(trgAlloc.MEASURABLE_RATING_ID))
+                    .where(trgAlloc.ID.isNull());
+
+            UpdateConditionStep<AllocationRecord> mergeAllocQry = tx
+                    .update(ALLOCATION)
+                    .set(ALLOCATION.ALLOCATION_PERCENTAGE, totalAlloc)
+                    .from(allocsToUpdate)
+                    .where(ALLOCATION.ID.eq(allocsToUpdate.field(updateTargetAllocId)));
+
+            int mergedAllocs = mergeAllocQry
+                    .execute();
+
+            UpdateConditionStep<AllocationRecord> updateAllocQry = tx
+                    .update(ALLOCATION)
+                    .set(ALLOCATION.ALLOCATION_PERCENTAGE, allocsToMigrate.field(srcAlloc.ALLOCATION_PERCENTAGE))
+                    .from(allocsToMigrate)
+                    .where(ALLOCATION.ID.eq(allocsToMigrate.field(migrateTargetAllocId)));
+
+            int migratedAllocs = updateAllocQry
+                    .execute();
+
+            if (migratedAllocs > 0) {
+                writeChangeLogForMerge(
+                        tx,
+                        targetId,
+                        EntityKind.ALLOCATION,
+                        Operation.UPDATE,
+                        format("Migrated %d allocations from measurable: %d to %d", migratedAllocs, measurableId, targetId),
+                        userId);
+            }
+
+            if (mergedAllocs > 0) {
+                writeChangeLogForMerge(
+                        tx,
+                        targetId,
+                        EntityKind.ALLOCATION,
+                        Operation.UPDATE,
+                        format("Merged %d allocations from measurable: %d to %d where there was an existing allocation on the target", mergedAllocs, measurableId, targetId),
+                        userId);
+            }
+
+            LOG.info(format("Migrated %d ratings, %d decomms, %d/%d allocations (migrated/merged) from measurable: %d to %d",
+                    migratedRatings,
+                    migratedDecoms,
+                    migratedAllocs,
+                    mergedAllocs,
+                    measurableId,
+                    targetId));
+
+            int removedRatings = tx
+                    .deleteFrom(Tables.MEASURABLE_RATING)
+                    .where(Tables.MEASURABLE_RATING.MEASURABLE_ID.eq(measurableId))
+                    .execute();
+
+            if (removedRatings > 0) {
+                writeChangeLogForMerge(
+                        tx,
+                        targetId,
+                        EntityKind.ALLOCATION,
+                        Operation.UPDATE,
+                        format("Removed %d ratings from measurable: %d where they could not be migrated due to an existing rating on the target (%d)",
+                                removedRatings,
+                                measurableId,
+                                targetId),
+                        userId);
+            }
+
+            // allocations, decomms and replacements are automatically cleared up via cascade delete on fk
+            LOG.info("Removed {} measurable ratings and any associated allocations, planned decommissions and replacement applications after migration", removedRatings);
+        });
+    }
+
+
+    private void writeChangeLogForMerge(DSLContext tx, Long measurableId, EntityKind childKind, Operation operation, String message, String userId) {
+        tx
+                .insertInto(CHANGE_LOG)
+                .columns(CHANGE_LOG.PARENT_KIND,
+                        CHANGE_LOG.PARENT_ID,
+                        CHANGE_LOG.MESSAGE,
+                        CHANGE_LOG.USER_ID,
+                        CHANGE_LOG.SEVERITY,
+                        CHANGE_LOG.CREATED_AT,
+                        CHANGE_LOG.CHILD_KIND,
+                        CHANGE_LOG.OPERATION)
+                .values(EntityKind.MEASURABLE.name(),
+                        measurableId,
+                        message,
+                        userId,
+                        Severity.INFORMATION.name(),
+                        DateTimeUtilities.nowUtcTimestamp(),
+                        childKind.name(),
+                        operation.name())
+                .execute();
+    }
+
+
+    private SelectOrderByStep<Record2<Long, String>> selectRatingsThatCanBeModified(Long measurableId, Long targetId) {
+
+        SelectConditionStep<Record2<Long, String>> targets = mkEntitySelectForMeasurable(targetId);
+        SelectConditionStep<Record2<Long, String>> migrations = mkEntitySelectForMeasurable(measurableId);
+
+        return migrations.except(targets);
+    }
+
+
+    private SelectConditionStep<Record2<Long, String>> mkEntitySelectForMeasurable(Long measurableId) {
+        return DSL
+                .select(Tables.MEASURABLE_RATING.ENTITY_ID, Tables.MEASURABLE_RATING.ENTITY_KIND)
+                .from(Tables.MEASURABLE_RATING)
+                .where(Tables.MEASURABLE_RATING.MEASURABLE_ID.eq(measurableId));
+    }
+
+
+    public int getSharedRatingsCount(Long measurableId, Long targetId) {
+
+        SelectConditionStep<Record2<Long, String>> targets = mkEntitySelectForMeasurable(targetId);
+        SelectConditionStep<Record2<Long, String>> migrations = mkEntitySelectForMeasurable(measurableId);
+
+        SelectOrderByStep<Record2<Long, String>> sharedRatings = migrations.intersect(targets);
+
+        return dsl.fetchCount(sharedRatings);
+    }
+
+
+    public int getSharedDecommsCount(Long measurableId, Long targetId) {
+
+        SelectConditionStep<Record2<Long, String>> targets = mkEntitySelectForDecomm(targetId);
+        SelectConditionStep<Record2<Long, String>> migrations = mkEntitySelectForDecomm(measurableId);
+
+        SelectOrderByStep<Record2<Long, String>> sharedDecomms = migrations.intersect(targets);
+
+        return dsl.fetchCount(sharedDecomms);
+    }
+
+    private SelectConditionStep<Record2<Long, String>> mkEntitySelectForDecomm(Long measurableId) {
+        return DSL
+                .select(MEASURABLE_RATING.ENTITY_ID, MEASURABLE_RATING.ENTITY_KIND)
+                .from(MEASURABLE_RATING_PLANNED_DECOMMISSION)
+                .innerJoin(MEASURABLE_RATING).on(MEASURABLE_RATING_PLANNED_DECOMMISSION.MEASURABLE_RATING_ID.eq(MEASURABLE_RATING.ID))
+                .where(MEASURABLE_RATING.MEASURABLE_ID.eq(measurableId));
+    }
+
+
+    public boolean saveRatingItem(EntityReference entityRef,
+                                  long measurableId,
+                                  String ratingCode,
+                                  String username) {
+        return MeasurableRatingUtilities.saveRatingItem(
+                dsl,
+                entityRef,
+                measurableId,
+                ratingCode,
+                username);
+    }
+
+
+    public boolean saveRatingIsPrimary(EntityReference entityRef, long measurableId, boolean isPrimary, String username) {
+        return dsl.transactionResult(ctx -> MeasurableRatingUtilities.saveRatingIsPrimary(
+                ctx.dsl(),
+                entityRef,
+                measurableId,
+                isPrimary,
+                username));
+    }
+
+
+    public boolean saveRatingDescription(EntityReference entityRef, long measurableId, String description, String username) {
+        return dsl.transactionResult(ctx -> MeasurableRatingUtilities.saveRatingDescription(
+                ctx.dsl(),
+                entityRef,
+                measurableId,
+                description,
+                username));
+    }
+
+
+    public MeasurableRatingChangeSummary resolveLoggingContextForRatingChange(EntityReference entityRef,
+                                                                              long measurableId,
+                                                                              String desiredRatingCode) {
+        return MeasurableRatingUtilities.resolveLoggingContextForRatingChange(dsl, entityRef, measurableId, desiredRatingCode);
+    }
+
+    /*
+     * Should move to using a measurable rating id selector
+     */
+    @Deprecated
+    public Set<MeasurableRating> findPrimaryRatingsForGenericSelector(GenericSelector selector) {
+        return mkExtendedBaseQuery()
+                .where(dsl.renderInlined(MEASURABLE_RATING.ENTITY_KIND.eq(selector.kind().name())
+                        .and(MEASURABLE_RATING.ENTITY_ID.in(selector.selector()))
+                        .and(MEASURABLE_RATING.IS_PRIMARY.isTrue())))
+                .fetchSet(TO_DOMAIN_MAPPER);
+    }
+
+
+    public Set<MeasurableRating> findPrimaryRatingsForMeasurableIdSelector(Select<Record1<Long>> ratingIdSelector) {
+        return mkExtendedBaseQuery()
+                .where(dsl.renderInlined(MEASURABLE_RATING.ID.in(ratingIdSelector)
+                        .and(MEASURABLE_RATING.IS_PRIMARY.isTrue())))
+                .fetchSet(TO_DOMAIN_MAPPER);
     }
 }

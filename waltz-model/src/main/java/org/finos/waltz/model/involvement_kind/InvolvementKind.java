@@ -38,9 +38,18 @@ public abstract class InvolvementKind implements
         return EntityKind.INVOLVEMENT_KIND;
     }
 
+    public abstract EntityKind subjectKind();
+
     @Value.Default
     public boolean userSelectable() {
         return true;
-    };
+    }
 
+    @Nullable
+    public abstract String permittedRole();
+
+    @Value.Default
+    public boolean transitive() {
+        return true;
+    }
 }

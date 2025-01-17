@@ -19,9 +19,11 @@
 package org.finos.waltz.common;
 
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
 import java.util.function.BinaryOperator;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -132,6 +134,26 @@ public class MapUtilities {
     }
 
 
+    public static <K, V, V2> TreeMap<K, Collection<V2>> orderedGroupBy(Collection<V> xs,
+                                                                       Function<V, K> keyFn,
+                                                                       Function<V, V2> valueFn,
+                                                                       Comparator<K> comparator) {
+        checkNotNull(xs, "xs cannot be null");
+        checkNotNull(keyFn, "keyFn cannot be null");
+        checkNotNull(valueFn, "valueFn cannot be null");
+
+        TreeMap<K, Collection<V2>> result = new TreeMap<>(comparator);
+
+        for (V v: xs) {
+            K key = keyFn.apply(v);
+            Collection<V2> bucket = result.computeIfAbsent(key, u -> ListUtilities.newArrayList());
+            bucket.add(valueFn.apply(v));
+            result.put(key, bucket);
+        }
+        return result;
+    }
+
+
     public static <K, V> Map<K, V> indexBy(Collection<V> xs,
                                            Function<V, K> keyFn) {
         return indexBy(keyFn, xs);
@@ -195,6 +217,11 @@ public class MapUtilities {
 
     public static <K, V> Map<K, Long> countBy(Function<V, K> keyFn,
                                               Collection<V> xs) {
+        return countBy(xs, keyFn);
+    }
+
+    public static <K, V> Map<K, Long> countBy(Collection<V> xs,
+                                              Function<V, K> keyFn) {
         if (xs == null) {
             return emptyMap();
         }

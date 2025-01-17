@@ -18,9 +18,11 @@
 
 package org.finos.waltz.data.flow_classification_rule;
 
-import org.finos.waltz.schema.tables.records.FlowClassificationRecord;
+import org.finos.waltz.model.FlowDirection;
+import org.finos.waltz.model.MessageSeverity;
 import org.finos.waltz.model.flow_classification.FlowClassification;
 import org.finos.waltz.model.flow_classification.ImmutableFlowClassification;
+import org.finos.waltz.schema.tables.records.FlowClassificationRecord;
 import org.jooq.DSLContext;
 import org.jooq.Record;
 import org.jooq.RecordMapper;
@@ -29,8 +31,8 @@ import org.springframework.stereotype.Repository;
 
 import java.util.Set;
 
-import static org.finos.waltz.schema.Tables.FLOW_CLASSIFICATION;
 import static org.finos.waltz.common.Checks.checkNotNull;
+import static org.finos.waltz.schema.Tables.FLOW_CLASSIFICATION;
 
 
 @Repository
@@ -49,6 +51,9 @@ public class FlowClassificationDao {
                 .position(record.getPosition())
                 .isCustom(record.getIsCustom())
                 .userSelectable(record.getUserSelectable())
+                .direction(FlowDirection.valueOf(record.getDirection()))
+                .defaultMessage(record.getDefaultMessage())
+                .messageSeverity(MessageSeverity.valueOf(record.getMessageSeverity()))
                 .build();
     };
 
@@ -74,6 +79,15 @@ public class FlowClassificationDao {
                 .from(FLOW_CLASSIFICATION)
                 .where(FLOW_CLASSIFICATION.ID.eq(id))
                 .fetchOne(TO_DOMAIN_MAPPER);
+    }
+
+
+    public Set<FlowClassification> findByIds(Set<Long> classificationRuleIds) {
+        return dsl
+                .select(FLOW_CLASSIFICATION.fields())
+                .from(FLOW_CLASSIFICATION)
+                .where(FLOW_CLASSIFICATION.ID.in(classificationRuleIds))
+                .fetchSet(TO_DOMAIN_MAPPER);
     }
 
 

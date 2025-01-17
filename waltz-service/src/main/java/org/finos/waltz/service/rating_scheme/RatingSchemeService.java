@@ -29,6 +29,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 @Service
@@ -41,7 +42,7 @@ public class RatingSchemeService {
         this.ratingSchemeDAO = ratingSchemeDAO;
     }
 
-    public Collection<RatingScheme>  findAll() {
+    public Collection<RatingScheme> findAll() {
         return ratingSchemeDAO.findAll();
     }
 
@@ -49,7 +50,9 @@ public class RatingSchemeService {
         return ratingSchemeDAO.getById(id);
     }
 
-    public List<RatingSchemeItem> getAllRatingSchemeItems() {return ratingSchemeDAO.fetchItems(DSL.trueCondition()); }
+    public List<RatingSchemeItem> findAllRatingSchemeItems() {
+        return ratingSchemeDAO.fetchItems(DSL.trueCondition());
+    }
 
     public List<RatingSchemeItem> findRatingSchemeItemsByAssessmentDefinition(long assessmentDefinitionId) {
         return ratingSchemeDAO.findRatingSchemeItemsForAssessmentDefinition(assessmentDefinitionId);
@@ -85,5 +88,9 @@ public class RatingSchemeService {
 
     public Boolean removeRatingScheme(long id) {
         return ratingSchemeDAO.removeRatingScheme(id);
+    }
+
+    public Set<RatingSchemeItem> findRatingSchemeItemsBySchemeIds(Set<Long> schemeIds) {
+        return ratingSchemeDAO.findRatingSchemeItemsForSchemeIds(schemeIds);
     }
 }

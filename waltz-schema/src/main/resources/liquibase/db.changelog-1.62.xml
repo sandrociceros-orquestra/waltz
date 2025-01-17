@@ -1,0 +1,117 @@
+<!--
+  ~ Waltz - Enterprise Architecture
+  ~ Copyright (C) 2016, 2017, 2018, 2019 Waltz open source project
+  ~ See README.md for more information
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~     http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific
+  ~
+  -->
+<databaseChangeLog xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.4.xsd"
+                   logicalFilePath="db.changelog-1.62.xml">
+
+    <changeSet id="v1-61-tag"
+               author="davidwatkins73">
+        <tagDatabase tag="v1.61"/> <!-- tag the current db version, i.e. the last  -->
+    </changeSet>
+
+    <changeSet id="20240714-7099-1"
+               author="davidwatkins73">
+        <addColumn tableName="involvement_kind">
+            <column name="transitive"
+                    type="boolean"
+                    defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+
+    <changeSet id="20240714-7099-2"
+               author="davidwatkins73">
+        <setColumnRemarks tableName="involvement_kind"
+                          columnName="transitive"
+                          remarks="indicates if this involvment transitively rolls up the management chain"/>
+    </changeSet>
+
+    <changeSet id="20240714-7099-3"
+               author="davidwatkins73">
+        <setColumnRemarks tableName="involvement_kind"
+                          columnName="subject_kind"
+                          remarks="Indicates what type of entity this involvement can be attached to"/>
+        <setColumnRemarks tableName="involvement_kind"
+                          columnName="name"
+                          remarks="Short, descriptive name for this involvement"/>
+        <setColumnRemarks tableName="involvement_kind"
+                          columnName="permitted_role"
+                          remarks="If set, then the editing user must have this role to assign this involvement"/>
+    </changeSet>
+
+
+    <changeSet id="20240722-7118-1"
+               author="davidwatkins73">
+        <comment>7118: dropping the 'key' foreign key constraint to user_role</comment>
+        <dropForeignKeyConstraint baseTableName="user_role"
+                                  constraintName="user_role_role_key_fk"/>
+    </changeSet>
+
+    <changeSet id="20240722-7118-2"
+               author="davidwatkins73">
+        <comment>7118: dropping the 'key' column as the primary key </comment>
+        <dropPrimaryKey tableName="role"/>
+        <rollback>
+            <addPrimaryKey columnNames="role"
+                           constraintName="role_pkey"
+                           tableName="role"/>
+        </rollback>
+    </changeSet>
+
+
+    <changeSet id="20240722-7118-3"
+               author="davidwatkins73">
+        <comment>7118: making the 'key' column unique</comment>
+        <createIndex indexName="idx_role_key"
+                     tableName="role"
+                     unique="true">
+            <column name="key"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="20240722-7118-4"
+               author="davidwatkins73"
+               dbms="!h2">
+        <comment>7118: recreate the 'key' foreign key constraint to user_role</comment>
+        <addForeignKeyConstraint baseTableName="user_role"
+                                 baseColumnNames="role"
+                                 constraintName="user_role_role_key_fk"
+                                 referencedTableName="role"
+                                 referencedColumnNames="key"
+                                 referencesUniqueColumn="true"
+                                 onDelete="CASCADE"/>
+    </changeSet>
+
+    <changeSet id="20240722-7118-5"
+               author="davidwatkins73">
+        <comment>7118: adding a new 'id' column and making it the pk</comment>
+        <addColumn tableName="role">
+            <column name="id"
+                    type="${id.type}"
+                    autoIncrement="true">
+            </column>
+        </addColumn>
+        <addPrimaryKey columnNames="id"
+                       constraintName="role_pkey"
+                       tableName="role"/>
+    </changeSet>
+
+</databaseChangeLog>

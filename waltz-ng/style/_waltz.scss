@@ -56,6 +56,7 @@
 @import "client/entity-statistics/components/history-chart/entity-statistic-history-chart";
 @import "client/entity-svg-diagram/components/viewer/entity-svg-diagram-viewer";
 @import "client/report-grid/components/grid-view-section/report-grid-view-section";
+@import "client/legal-entity/components/bulk-legal-entity-selector/bulk-legal-entity-selector";
 @import "client/logical-flow/components/boingy-graph/boingy-graph";
 @import "client/logical-flow/components/logical-flows-tabgroup/logical-flows-tabgroup";
 @import "client/logical-flow/components/source-and-target-graph/source-and-target-graph";
@@ -222,10 +223,12 @@ textarea {
 
 .waltz-display-field-label {
     color: #705f53;
+    overflow: hidden;
+    padding-bottom: 0.2em;
 }
 
 .waltz-display-field-value {
-    overflow-wrap: break-word;
+    overflow-wrap: anywhere;
 }
 
 
@@ -263,7 +266,7 @@ textarea {
     border: 1px solid #ccc;
     font-size: x-small;
     margin: auto;
-    padding: 0 3px 0 3px;
+    padding: 0 3px;
 }
 
 
@@ -315,7 +318,7 @@ textarea {
 
 .waltz-detail-callout {
     background-color: lighten($waltz-background-color, 0.5);
-    padding: 0 6px 4px 6px;
+    padding: 0 6px 4px;
     border-radius: 3px;
     border: 1px solid $waltz-border-color-lighter;
     @include waltz-box-shadow();
@@ -418,7 +421,7 @@ a.subtle-link:hover {
         width: 10px;
 
         :first-of-type(span) {
-            padding: 5px 5px;
+            padding: 5px;
         }
     }
 }
@@ -439,4 +442,33 @@ a[disabled="disabled"] {
     font-style: italic;
     color: #AAA;
     text-decoration: line-through rgba(125, 125, 125, 0.3);
+}
+
+.waltz-sticky-part {
+    position: -webkit-sticky;
+    position: sticky;
+    top: 100px;
+}
+
+.waltz-sticky-wrapper {
+    display: flex;
+    justify-content: space-between;
+}
+
+details {
+    background: #f5f5f5;
+    border: 1px solid #eee;
+    margin-bottom: 1rem;
+    padding: .5rem 1rem;
+    border-radius: 5px;
+}
+
+details summary {
+    cursor: pointer;
+    display: list-item;
+}
+
+
+.waltz-search-input {
+    width: 100%;
 }

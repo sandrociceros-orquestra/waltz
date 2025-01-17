@@ -19,12 +19,14 @@
 import _ from "lodash";
 import {initialiseData} from "../../../common/index";
 import {CORE_API} from "../../../common/services/core-api-utils";
+import AliasControl from "../../../common/svelte/AliasControl.svelte";
 
 import toasts from "../../../svelte-stores/toast-store";
 import template from "./app-overview.html";
 import {displayError} from "../../../common/error-utils";
 import {enrichComplexitiesWithKind, findDefaultComplexityKind} from "../../../complexity/services/complexity-utilities";
 import {mkSelectionOptions} from "../../../common/selector-utils";
+import PrimaryRatingOverviewSubSection from "../../../measurable-rating/svelte/PrimaryRatingOverviewSubSection.svelte";
 
 const bindings = {
     parentEntityRef: "<"
@@ -32,7 +34,7 @@ const bindings = {
 
 
 const initialState = {
-    aliases: [],
+    AliasControl,
     app: null,
     appGroups: [],
     appGroupsToDisplay: [],
@@ -40,10 +42,10 @@ const initialState = {
     organisationalUnit: null,
     tags: [],
     visibility: {
-        aliasEditor: false,
         tagEditor: false
     },
-    showAllAppGroups: false
+    showAllAppGroups: false,
+    PrimaryRatingOverviewSubSection
 };
 
 
@@ -56,14 +58,6 @@ function controller($state, serviceBroker) {
                 CORE_API.ApplicationStore.getById,
                 [vm.parentEntityRef.id])
             .then(r => vm.app = r.data);
-    }
-
-    function loadAliases() {
-        serviceBroker
-            .loadViewData(
-                CORE_API.AliasStore.getForEntity,
-                [vm.parentEntityRef])
-            .then(r => vm.aliases = r.data);
     }
 
     function loadTags() {
@@ -117,27 +111,13 @@ function controller($state, serviceBroker) {
         loadApp()
             .then(() => loadComplexities())
             .then(() => loadOrganisationalUnit());
-        loadAliases();
         loadTags();
         loadAppGroups();
     };
 
-
-    vm.showAliasEditor = () => vm.visibility.aliasEditor = true;
     vm.showTagEditor = () => vm.visibility.tagEditor = true;
 
-    vm.dismissAliasEditor = () =>  vm.visibility.aliasEditor = false;
     vm.dismissTagEditor = () => vm.visibility.tagEditor = false;
-
-    vm.saveAliases = (aliases = []) => serviceBroker
-        .execute(
-            CORE_API.AliasStore.update,
-            [ vm.parentEntityRef, aliases ])
-        .then(r => {
-            toasts.success("Updated aliases");
-            vm.aliases = r.data
-        })
-        .catch(e => displayError("Could not update aliases", e));
 
     vm.saveTags = (tags = [], successMessage) => serviceBroker
         .execute(

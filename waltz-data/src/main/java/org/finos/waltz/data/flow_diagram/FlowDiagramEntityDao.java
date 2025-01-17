@@ -18,7 +18,6 @@
 
 package org.finos.waltz.data.flow_diagram;
 
-import org.finos.waltz.schema.tables.records.FlowDiagramEntityRecord;
 import org.finos.waltz.data.GenericSelector;
 import org.finos.waltz.data.InlineSelectFieldFactory;
 import org.finos.waltz.model.EntityKind;
@@ -27,7 +26,14 @@ import org.finos.waltz.model.EntityReference;
 import org.finos.waltz.model.ImmutableEntityReference;
 import org.finos.waltz.model.flow_diagram.FlowDiagramEntity;
 import org.finos.waltz.model.flow_diagram.ImmutableFlowDiagramEntity;
-import org.jooq.*;
+import org.finos.waltz.schema.tables.records.FlowDiagramEntityRecord;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record;
+import org.jooq.Record1;
+import org.jooq.RecordMapper;
+import org.jooq.Select;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
@@ -36,13 +42,15 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
 
-import static org.finos.waltz.schema.tables.FlowDiagramEntity.FLOW_DIAGRAM_ENTITY;
 import static java.lang.String.format;
 import static java.util.stream.Collectors.toList;
 import static org.finos.waltz.common.Checks.checkNotNull;
 import static org.finos.waltz.common.EnumUtilities.readEnum;
-import static org.finos.waltz.common.ListUtilities.*;
+import static org.finos.waltz.common.ListUtilities.asList;
+import static org.finos.waltz.common.ListUtilities.map;
+import static org.finos.waltz.common.ListUtilities.newArrayList;
 import static org.finos.waltz.model.EntityReference.mkRef;
+import static org.finos.waltz.schema.tables.FlowDiagramEntity.FLOW_DIAGRAM_ENTITY;
 
 
 @Repository
@@ -55,21 +63,21 @@ public class FlowDiagramEntityDao {
             EntityKind.ACTOR,
             EntityKind.CHANGE_INITIATIVE,
             EntityKind.DATA_TYPE,
+            EntityKind.END_USER_APPLICATION,
             EntityKind.LOGICAL_DATA_FLOW,
             EntityKind.MEASURABLE,
             EntityKind.PHYSICAL_FLOW);
 
-    private static Field<String> ENTITY_NAME_FIELD = InlineSelectFieldFactory.mkNameField(
+    private static final Field<String> ENTITY_NAME_FIELD = InlineSelectFieldFactory.mkNameField(
             fde.ENTITY_ID,
             fde.ENTITY_KIND,
             POSSIBLE_ENTITY_KINDS);
 
 
-    private static Field<String> ENTITY_LIFECYCLE_PHASE_FIELD = InlineSelectFieldFactory.mkEntityLifecycleField(
+    private static final Field<String> ENTITY_LIFECYCLE_PHASE_FIELD = InlineSelectFieldFactory.mkEntityLifecycleField(
             fde.ENTITY_ID,
             fde.ENTITY_KIND,
             POSSIBLE_ENTITY_KINDS);
-
 
 
     private static final RecordMapper<Record, FlowDiagramEntity> TO_DOMAIN_MAPPER = r -> {

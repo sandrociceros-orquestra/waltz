@@ -42,18 +42,21 @@
         endDate = new Date(date);
     }
 
+    $: vbWidth = dimensions.month.width * dimensions.monthsPerLine;
+    $: vbHeight = dimensions.month.height * diagramRows;
 
 </script>
 
-<svg width={dimensions.diagram.width}
-     height={dimensions.month.height * diagramRows}
-     viewBox={`0 0 ${dimensions.diagram.width * (1 + 1/dimensions.monthsPerLine)} ${dimensions.month.height * diagramRows}`}>
+<svg width="100%"
+     style="max-height: 300px"
+     viewBox={`0 0 ${vbWidth} ${vbHeight}`}>
     <g>
         {#each months as monthData, idx}
             <g transform={`translate(${determineColumn(idx) * dimensions.month.width}, ${determineRow(idx) * dimensions.month.height})`}>
 
                 <g on:click={() => onSelectMonth(_.map(monthData.days, d => d.date))}
-                   on:keydown={() => onSelectMonth(_.map(monthData.days, d => d.date))}>
+                   on:keydown={() => onSelectMonth(_.map(monthData.days, d => d.date))}
+                   role="button">
                     <title>{format(monthData?.startDate)}</title>
 
                     <rect width={dimensions.month.width}

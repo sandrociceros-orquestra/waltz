@@ -23,7 +23,12 @@ import org.finos.waltz.data.SelectorUtilities;
 import org.finos.waltz.data.application.ApplicationIdSelectorFactory;
 import org.finos.waltz.model.IdSelectionOptions;
 import org.finos.waltz.web.WebUtilities;
-import org.jooq.*;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.Record1;
+import org.jooq.Record8;
+import org.jooq.Select;
+import org.jooq.SelectConditionStep;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,7 +39,9 @@ import static org.finos.waltz.schema.Tables.ORGANISATIONAL_UNIT;
 import static spark.Spark.post;
 
 
+// TODO: remove in 1.61 if not needed
 @Service
+@Deprecated
 public class ApplicationExtractor extends DirectQueryBasedDataExtractor {
 
     private static final Logger LOG = LoggerFactory.getLogger(ApplicationExtractor.class);
@@ -49,7 +56,7 @@ public class ApplicationExtractor extends DirectQueryBasedDataExtractor {
 
     @Override
     public void register() {
-        post(WebUtilities.mkPath("data-extract", "application", "by-selector"), (request, response) -> {
+        post(WebUtilities.mkPath("data-extract", "application", "by-selector-old"), (request, response) -> {
             IdSelectionOptions idSelectionOptions = WebUtilities.readIdSelectionOptionsFromBody(request);
             Select<Record1<Long>> idSelector = applicationIdSelectorFactory.apply(idSelectionOptions);
             Condition condition =

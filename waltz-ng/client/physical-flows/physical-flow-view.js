@@ -21,9 +21,10 @@ import _ from "lodash";
 
 import template from "./physical-flow-view.html";
 import {CORE_API} from "../common/services/core-api-utils";
-import {toEntityRef} from "../common/entity-utils";
+import {toEntityRefWithKind} from "../common/entity-utils";
 import toasts from "../svelte-stores/toast-store";
 import {displayError} from "../common/error-utils";
+import {copyTextToClipboard} from "../common/browser-utils";
 
 
 const modes = {
@@ -102,6 +103,7 @@ function navigateToLastView($state, historyStore) {
 function controller($q,
                     $state,
                     $stateParams,
+                    $window,
                     historyStore,
                     physicalFlowStore,
                     physicalSpecificationStore,
@@ -148,7 +150,7 @@ function controller($q,
                     [physicalFlow.specificationId]))
             .then(r => {
                 vm.specification = r.data;
-                vm.specificationReference = toEntityRef(r.data, "PHYSICAL_SPECIFICATION");
+                vm.specificationReference = toEntityRefWithKind(r.data, "PHYSICAL_SPECIFICATION");
                 addToHistory(historyStore, vm.physicalFlow, vm.specification);
             });
     };
@@ -279,6 +281,13 @@ function controller($q,
         vm.mode = modes.OVERVIEW;
     };
 
+
+    vm.sharePageLink = () => {
+        const viewUrl = $state.href("main.physical-flow.external-id", { externalId: vm.physicalFlow.externalId });
+        copyTextToClipboard(`${$window.location.origin}${viewUrl}`)
+            .then(() => toasts.success("Copied link to clipboard"))
+            .catch(e => displayError("Could not copy link to clipboard", e));
+    }
 }
 
 
@@ -286,6 +295,7 @@ controller.$inject = [
     "$q",
     "$state",
     "$stateParams",
+    "$window",
     "HistoryStore",
     "PhysicalFlowStore",
     "PhysicalSpecificationStore",

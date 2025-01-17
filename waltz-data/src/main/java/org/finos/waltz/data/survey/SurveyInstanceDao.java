@@ -19,6 +19,7 @@
 package org.finos.waltz.data.survey;
 
 import org.finos.waltz.common.CollectionUtilities;
+import org.finos.waltz.common.SetUtilities;
 import org.finos.waltz.data.InlineSelectFieldFactory;
 import org.finos.waltz.model.EntityKind;
 import org.finos.waltz.model.Operation;
@@ -26,12 +27,30 @@ import org.finos.waltz.model.ReleaseLifecycleStatus;
 import org.finos.waltz.model.Severity;
 import org.finos.waltz.model.attestation.ImmutableSyncRecipientsResponse;
 import org.finos.waltz.model.attestation.SyncRecipientsResponse;
-import org.finos.waltz.model.survey.*;
+import org.finos.waltz.model.survey.ImmutableSurveyInstance;
+import org.finos.waltz.model.survey.ImmutableSurveyRunCompletionRate;
+import org.finos.waltz.model.survey.SurveyInstance;
+import org.finos.waltz.model.survey.SurveyInstanceCreateCommand;
+import org.finos.waltz.model.survey.SurveyInstanceStatus;
+import org.finos.waltz.model.survey.SurveyInvolvementKind;
+import org.finos.waltz.model.survey.SurveyRunCompletionRate;
 import org.finos.waltz.schema.tables.records.ChangeLogRecord;
 import org.finos.waltz.schema.tables.records.SurveyInstanceOwnerRecord;
 import org.finos.waltz.schema.tables.records.SurveyInstanceRecipientRecord;
 import org.finos.waltz.schema.tables.records.SurveyInstanceRecord;
-import org.jooq.*;
+import org.jooq.CommonTableExpression;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record;
+import org.jooq.Record1;
+import org.jooq.Record2;
+import org.jooq.Record3;
+import org.jooq.Record6;
+import org.jooq.RecordMapper;
+import org.jooq.Result;
+import org.jooq.Select;
+import org.jooq.SelectConditionStep;
 import org.jooq.impl.DSL;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,7 +59,14 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.Timestamp;
 import java.time.LocalDate;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -50,12 +76,25 @@ import static java.util.stream.Collectors.collectingAndThen;
 import static java.util.stream.Collectors.toSet;
 import static org.finos.waltz.common.Checks.checkNotNull;
 import static org.finos.waltz.common.CollectionUtilities.map;
-import static org.finos.waltz.common.DateTimeUtilities.*;
-import static org.finos.waltz.common.ListUtilities.newArrayList;
+import static org.finos.waltz.common.DateTimeUtilities.nowUtc;
+import static org.finos.waltz.common.DateTimeUtilities.nowUtcTimestamp;
+import static org.finos.waltz.common.DateTimeUtilities.toLocalDate;
+import static org.finos.waltz.common.DateTimeUtilities.toSqlDate;
+import static org.finos.waltz.common.DateTimeUtilities.today;
 import static org.finos.waltz.common.StringUtilities.lower;
 import static org.finos.waltz.data.JooqUtilities.maybeReadRef;
 import static org.finos.waltz.model.EntityReference.mkRef;
-import static org.finos.waltz.schema.Tables.*;
+import static org.finos.waltz.schema.Tables.CHANGE_LOG;
+import static org.finos.waltz.schema.Tables.INVOLVEMENT;
+import static org.finos.waltz.schema.Tables.INVOLVEMENT_GROUP_ENTRY;
+import static org.finos.waltz.schema.Tables.INVOLVEMENT_KIND;
+import static org.finos.waltz.schema.Tables.PERSON;
+import static org.finos.waltz.schema.Tables.SURVEY_INSTANCE;
+import static org.finos.waltz.schema.Tables.SURVEY_INSTANCE_OWNER;
+import static org.finos.waltz.schema.Tables.SURVEY_INSTANCE_RECIPIENT;
+import static org.finos.waltz.schema.Tables.SURVEY_RUN;
+import static org.finos.waltz.schema.Tables.SURVEY_TEMPLATE;
+import static org.finos.waltz.schema.tables.InvolvementGroup.INVOLVEMENT_GROUP;
 
 @Repository
 public class SurveyInstanceDao {
@@ -70,25 +109,36 @@ public class SurveyInstanceDao {
     private static final org.finos.waltz.schema.tables.InvolvementKind ik = INVOLVEMENT_KIND;
     private static final org.finos.waltz.schema.tables.Involvement i = INVOLVEMENT;
     private static final org.finos.waltz.schema.tables.Person p = PERSON;
+    private static final org.finos.waltz.schema.tables.InvolvementGroup ig = INVOLVEMENT_GROUP;
+    private static final org.finos.waltz.schema.tables.InvolvementGroupEntry ige = INVOLVEMENT_GROUP_ENTRY;
 
     private static final Field<String> ENTITY_NAME_FIELD = InlineSelectFieldFactory
             .mkNameField(
                     si.ENTITY_ID,
-                    si.ENTITY_KIND,
-                    newArrayList(EntityKind.values()))
+                    si.ENTITY_KIND)
             .as("entity_name");
 
     private static final Field<String> EXTERNAL_ID_FIELD = InlineSelectFieldFactory
             .mkExternalIdField(
                     si.ENTITY_ID,
-                    si.ENTITY_KIND,
-                    newArrayList(EntityKind.values()))
+                    si.ENTITY_KIND)
             .as("external_id");
 
 
     private static final Condition IS_ORIGINAL_INSTANCE_CONDITION = si.ORIGINAL_INSTANCE_ID.isNull();
 
-    private static final RecordMapper<Record, SurveyInstance> TO_DOMAIN_MAPPER = r -> {
+    private static final Set<SurveyInstanceStatus> UPDATABLE_RECIPIENT_STATUSES = SetUtilities.asSet(
+            SurveyInstanceStatus.NOT_STARTED,
+            SurveyInstanceStatus.IN_PROGRESS,
+            SurveyInstanceStatus.REJECTED);
+
+    private static final Set<SurveyInstanceStatus> UPDATABLE_OWNER_STATUSES = SetUtilities.asSet(
+            SurveyInstanceStatus.NOT_STARTED,
+            SurveyInstanceStatus.IN_PROGRESS,
+            SurveyInstanceStatus.COMPLETED,
+            SurveyInstanceStatus.REJECTED);
+
+    public static final RecordMapper<Record, SurveyInstance> TO_DOMAIN_MAPPER = r -> {
         SurveyInstanceRecord record = r.into(si);
         return ImmutableSurveyInstance.builder()
                 .id(record.getId())
@@ -115,6 +165,32 @@ public class SurveyInstanceDao {
                         .orElse(null))
                 .issuedOn(toLocalDate(record.getIssuedOn()))
                 .build();
+    };
+
+    private static final Function<SurveyInstance, SurveyInstanceRecord> TO_RECORD_MAPPER = d -> {
+
+        SurveyInstanceRecord r = new SurveyInstanceRecord();
+
+        d.id().ifPresent(r::setId);
+        r.setSurveyRunId(d.surveyRunId());
+        r.setEntityKind(d.surveyEntity().kind().name());
+        r.setEntityId(d.surveyEntity().id());
+        r.setStatus(d.status().name());
+        r.setSubmittedAt(Timestamp.valueOf(d.submittedAt()));
+        r.setSubmittedBy(d.submittedBy());
+        r.setDueDate(toSqlDate(d.dueDate()));
+        r.setOriginalInstanceId(d.originalInstanceId());
+        r.setApprovedAt(Timestamp.valueOf(d.approvedAt()));
+        r.setApprovedBy(d.approvedBy());
+        r.setOwningRole(d.owningRole());
+        r.setEntityQualifierId(d.qualifierEntity().id());
+        r.setEntityQualifierKind(d.qualifierEntity().kind().name());
+        r.setName(d.name());
+        r.setApprovalDueDate(toSqlDate(d.approvalDueDate()));
+        r.setIssuedOn(toSqlDate(d.issuedOn()));
+        r.changed(SURVEY_INSTANCE.ID, false);
+
+        return r;
     };
 
     private final DSLContext dsl;
@@ -162,6 +238,34 @@ public class SurveyInstanceDao {
     }
 
 
+    public Set<SurveyInstance> findForSurveyRun(long surveyRunId, SurveyInstanceStatus... statuses) {
+        Set<String> statusStrings = Arrays.stream(statuses).map(s -> s.name()).collect(toSet());
+
+        return dsl.select(si.fields())
+                .select(ENTITY_NAME_FIELD)
+                .select(EXTERNAL_ID_FIELD)
+                .from(si)
+                .where(si.SURVEY_RUN_ID.eq(surveyRunId))
+                .and(IS_ORIGINAL_INSTANCE_CONDITION)
+                .and(si.STATUS.in(statusStrings))
+                .fetchSet(TO_DOMAIN_MAPPER);
+    }
+
+
+    public Set<SurveyInstance> findForSurveyTemplate(long templateId, SurveyInstanceStatus... statuses) {
+        Set<String> statusStrings = Arrays.stream(statuses).map(s -> s.name()).collect(toSet());
+
+        return dsl.select(si.fields())
+                .select(ENTITY_NAME_FIELD)
+                .select(EXTERNAL_ID_FIELD)
+                .from(si)
+                .join(sr).on(sr.ID.eq(si.SURVEY_RUN_ID))
+                .where(sr.SURVEY_TEMPLATE_ID.eq(templateId))
+                .and(si.STATUS.in(statusStrings))
+                .fetchSet(TO_DOMAIN_MAPPER);
+    }
+
+
     public long create(SurveyInstanceCreateCommand command) {
         checkNotNull(command, "command cannot be null");
 
@@ -181,10 +285,12 @@ public class SurveyInstanceDao {
     }
 
 
-    public long createPreviousVersion(SurveyInstance currentInstance) {
+    public long createPreviousVersion(Optional<DSLContext> tx, SurveyInstance currentInstance) {
         checkNotNull(currentInstance, "currentInstance cannot be null");
 
-        SurveyInstanceRecord record = dsl.newRecord(si);
+        DSLContext dslContext = tx.orElse(dsl);
+
+        SurveyInstanceRecord record = dslContext.newRecord(si);
         record.setSurveyRunId(currentInstance.surveyRunId());
         record.setEntityKind(currentInstance.surveyEntity().kind().name());
         record.setEntityId(currentInstance.surveyEntity().id());
@@ -220,13 +326,15 @@ public class SurveyInstanceDao {
     }
 
 
-    public int updateStatus(long instanceId, SurveyInstanceStatus newStatus) {
+    public int updateStatus(Optional<DSLContext> tx, long instanceId, SurveyInstanceStatus newStatus) {
         checkNotNull(newStatus, "newStatus cannot be null");
-
-        return dsl.update(si)
+        DSLContext dslContext = tx.orElse(dsl);
+        return dslContext
+                .update(si)
                 .set(si.STATUS, newStatus.name())
                 .where(si.STATUS.notEqual(newStatus.name())
-                        .and(si.ID.eq(instanceId)))
+                        .and(si.ID.eq(instanceId))
+                        .and(si.ORIGINAL_INSTANCE_ID.isNull()))
                 .execute();
     }
 
@@ -272,35 +380,60 @@ public class SurveyInstanceDao {
                 .execute();
     }
 
-
-    public int updateSubmitted(long instanceId, String userName) {
+    public int markSubmitted(Optional<DSLContext> tx, long instanceId, String userName) {
         checkNotNull(userName, "userName cannot be null");
-
-        return dsl.update(si)
+        DSLContext dslContext = tx.orElse(dsl);
+        return dslContext
+                .update(si)
+                .set(si.STATUS, SurveyInstanceStatus.COMPLETED.name())
                 .set(si.SUBMITTED_AT, Timestamp.valueOf(nowUtc()))
                 .set(si.SUBMITTED_BY, userName)
-                .where(si.ID.eq(instanceId))
+                .where(si.ID.eq(instanceId)
+                        .and(si.ORIGINAL_INSTANCE_ID.isNull())
+                        .and(si.STATUS.in(
+                                SurveyInstanceStatus.NOT_STARTED.name(),
+                                SurveyInstanceStatus.IN_PROGRESS.name())))
                 .execute();
     }
 
 
-    public int markApproved(long instanceId, String userName) {
+    public int markApproved(Optional<DSLContext> tx, long instanceId, String userName) {
         checkNotNull(userName, "userName cannot be null");
-
-        return dsl.update(si)
+        DSLContext dslContext = tx.orElse(dsl);
+        return dslContext
+                .update(si)
                 .set(si.APPROVED_AT, Timestamp.valueOf(nowUtc()))
                 .set(si.APPROVED_BY, userName)
                 .set(si.STATUS, SurveyInstanceStatus.APPROVED.name())
-                .where(si.ID.eq(instanceId))
+                .where(si.ID.eq(instanceId)
+                        .and(si.ORIGINAL_INSTANCE_ID.isNull())
+                        .and(si.STATUS.eq(SurveyInstanceStatus.COMPLETED.name())))
                 .execute();
     }
 
+    public int reopenSurvey(Optional<DSLContext> tx,
+                            long instanceId,
+                            LocalDate dueDate,
+                            LocalDate approvalDueDate) {
 
-    public void clearApproved(long instanceId) {
-        dsl.update(si)
+        DSLContext dslContext = tx.orElse(dsl);
+
+        return dslContext
+                .update(si)
+                .set(si.STATUS, SurveyInstanceStatus.IN_PROGRESS.name())
                 .set(si.APPROVED_AT, (Timestamp) null)
                 .set(si.APPROVED_BY, (String) null)
-                .where(si.ID.eq(instanceId))
+                .set(si.SUBMITTED_AT, (Timestamp) null)
+                .set(si.SUBMITTED_BY, (String) null)
+                .set(si.ISSUED_ON, toSqlDate(nowUtcTimestamp())) //update the issued on to the current date
+                .set(si.DUE_DATE, toSqlDate(dueDate))
+                .set(si.APPROVAL_DUE_DATE, toSqlDate(approvalDueDate))
+                .where(si.ID.eq(instanceId)
+                        .and(si.ORIGINAL_INSTANCE_ID.isNull())
+                        .and(si.STATUS.in(
+                                SurveyInstanceStatus.APPROVED.name(),
+                                SurveyInstanceStatus.REJECTED.name(),
+                                SurveyInstanceStatus.WITHDRAWN.name())))
                 .execute();
     }
 
@@ -458,7 +591,7 @@ public class SurveyInstanceDao {
 
     public SyncRecipientsResponse getReassignRecipientsCounts() {
 
-        CommonTableExpression<Record6<Long, Long, String, String, String, String>> inScopeSurveys = getInScopeSurveysCTE();
+        CommonTableExpression<Record6<Long, Long, String, Long, Long, String>> inScopeSurveys = getInScopeSurveysCTE(UPDATABLE_RECIPIENT_STATUSES);
         CommonTableExpression<Record6<Long, Long, String, Long, String, String>> requiredRecipients = getRequiredRecipientsCTE(inScopeSurveys);
         CommonTableExpression<Record6<Long, Long, String, Long, String, String>> existingRecipients = getExistingRecipientsCTE(inScopeSurveys);
         CommonTableExpression<Record6<Long, Long, String, Long, String, String>> recipientsToRemove = getMembersToRemoveCTE(existingRecipients, requiredRecipients);
@@ -490,7 +623,7 @@ public class SurveyInstanceDao {
 
     public SyncRecipientsResponse getReassignOwnersCounts() {
 
-        CommonTableExpression<Record6<Long, Long, String, String, String, String>> inScopeSurveys = getInScopeSurveysCTE();
+        CommonTableExpression<Record6<Long, Long, String, Long, Long, String>> inScopeSurveys = getInScopeSurveysCTE(UPDATABLE_OWNER_STATUSES);
         CommonTableExpression<Record6<Long, Long, String, Long, String, String>> requiredOwners = getRequiredOwnersCTE(inScopeSurveys);
         CommonTableExpression<Record6<Long, Long, String, Long, String, String>> existingOwners = getExistingOwnersCTE(inScopeSurveys);
         CommonTableExpression<Record6<Long, Long, String, Long, String, String>> ownersToRemove = getMembersToRemoveCTE(existingOwners, requiredOwners);
@@ -522,7 +655,7 @@ public class SurveyInstanceDao {
 
     public SyncRecipientsResponse reassignRecipients() {
 
-        CommonTableExpression<Record6<Long, Long, String, String, String, String>> inScopeSurveys = getInScopeSurveysCTE();
+        CommonTableExpression<Record6<Long, Long, String, Long, Long, String>> inScopeSurveys = getInScopeSurveysCTE(UPDATABLE_RECIPIENT_STATUSES);
         CommonTableExpression<Record6<Long, Long, String, Long, String, String>> requiredRecipients = getRequiredRecipientsCTE(inScopeSurveys);
         CommonTableExpression<Record6<Long, Long, String, Long, String, String>> existingRecipients = getExistingRecipientsCTE(inScopeSurveys);
         CommonTableExpression<Record6<Long, Long, String, Long, String, String>> recipientsToRemove = getMembersToRemoveCTE(existingRecipients, requiredRecipients);
@@ -558,7 +691,7 @@ public class SurveyInstanceDao {
 
     public SyncRecipientsResponse reassignOwners() {
 
-        CommonTableExpression<Record6<Long, Long, String, String, String, String>> inScopeSurveys = getInScopeSurveysCTE();
+        CommonTableExpression<Record6<Long, Long, String, Long, Long, String>> inScopeSurveys = getInScopeSurveysCTE(UPDATABLE_OWNER_STATUSES);
         CommonTableExpression<Record6<Long, Long, String, Long, String, String>> requiredOwners = getRequiredOwnersCTE(inScopeSurveys);
         CommonTableExpression<Record6<Long, Long, String, Long, String, String>> existingOwners = getExistingOwnersCTE(inScopeSurveys);
         CommonTableExpression<Record6<Long, Long, String, Long, String, String>> ownersToRemove = getMembersToRemoveCTE(existingOwners, requiredOwners);
@@ -593,7 +726,7 @@ public class SurveyInstanceDao {
     }
 
     private int removeRecipients(DSLContext tx,
-                                 CommonTableExpression<Record6<Long, Long, String, String, String, String>> inScopeSurveys,
+                                 CommonTableExpression<Record6<Long, Long, String, Long, Long, String>> inScopeSurveys,
                                  CommonTableExpression<Record6<Long, Long, String, Long, String, String>> requiredRecipients,
                                  CommonTableExpression<Record6<Long, Long, String, Long, String, String>> existingRecipients,
                                  CommonTableExpression<Record6<Long, Long, String, Long, String, String>> recipientsToRemove) {
@@ -613,7 +746,7 @@ public class SurveyInstanceDao {
     }
 
     private int removeOwners(DSLContext tx,
-                             CommonTableExpression<Record6<Long, Long, String, String, String, String>> inScopeSurveys,
+                             CommonTableExpression<Record6<Long, Long, String, Long, Long, String>> inScopeSurveys,
                              CommonTableExpression<Record6<Long, Long, String, Long, String, String>> requiredOwners,
                              CommonTableExpression<Record6<Long, Long, String, Long, String, String>> existingOwners,
                              CommonTableExpression<Record6<Long, Long, String, Long, String, String>> ownersToRemove) {
@@ -633,7 +766,7 @@ public class SurveyInstanceDao {
     }
 
     private int insertRecipients(DSLContext tx,
-                                 CommonTableExpression<Record6<Long, Long, String, String, String, String>> inScopeSurveys,
+                                 CommonTableExpression<Record6<Long, Long, String, Long, Long, String>> inScopeSurveys,
                                  CommonTableExpression<Record6<Long, Long, String, Long, String, String>> requiredRecipients,
                                  CommonTableExpression<Record6<Long, Long, String, Long, String, String>> existingRecipients,
                                  CommonTableExpression<Record6<Long, Long, String, Long, String, String>> recipientsToRemove,
@@ -654,7 +787,7 @@ public class SurveyInstanceDao {
     }
 
     private int insertOwners(DSLContext tx,
-                             CommonTableExpression<Record6<Long, Long, String, String, String, String>> inScopeSurveys,
+                             CommonTableExpression<Record6<Long, Long, String, Long, Long, String>> inScopeSurveys,
                              CommonTableExpression<Record6<Long, Long, String, Long, String, String>> requiredOwners,
                              CommonTableExpression<Record6<Long, Long, String, Long, String, String>> existingOwners,
                              CommonTableExpression<Record6<Long, Long, String, Long, String, String>> ownersToRemove,
@@ -675,7 +808,7 @@ public class SurveyInstanceDao {
     }
 
     private int[] createAdditionChangeLogs(DSLContext tx,
-                                           CommonTableExpression<Record6<Long, Long, String, String, String, String>> inScopeSurveys,
+                                           CommonTableExpression<Record6<Long, Long, String, Long, Long, String>> inScopeSurveys,
                                            CommonTableExpression<Record6<Long, Long, String, Long, String, String>> requiredMembers,
                                            CommonTableExpression<Record6<Long, Long, String, Long, String, String>> existingMembers,
                                            CommonTableExpression<Record6<Long, Long, String, Long, String, String>> membersToAdd,
@@ -726,7 +859,7 @@ public class SurveyInstanceDao {
     }
 
     private int[] createRemovalChangeLogs(DSLContext tx,
-                                          CommonTableExpression<Record6<Long, Long, String, String, String, String>> inScopeSurveys,
+                                          CommonTableExpression<Record6<Long, Long, String, Long, Long, String>> inScopeSurveys,
                                           CommonTableExpression<Record6<Long, Long, String, Long, String, String>> requiredMembers,
                                           CommonTableExpression<Record6<Long, Long, String, Long, String, String>> existingMembers,
                                           CommonTableExpression<Record6<Long, Long, String, Long, String, String>> membersToRemove,
@@ -825,7 +958,7 @@ public class SurveyInstanceDao {
                                 .from(requiredMembers)));
     }
 
-    private CommonTableExpression<Record6<Long, Long, String, Long, String, String>> getExistingRecipientsCTE(CommonTableExpression<Record6<Long, Long, String, String, String, String>> inScopeSurveys) {
+    private CommonTableExpression<Record6<Long, Long, String, Long, String, String>> getExistingRecipientsCTE(CommonTableExpression<Record6<Long, Long, String, Long, Long, String>> inScopeSurveys) {
         return DSL
                 .name("existingRecipients")
                 .fields("survey_instance_id", "person_id", "entity_kind", "entity_id", "template_name", "person_email")
@@ -842,7 +975,7 @@ public class SurveyInstanceDao {
     }
 
 
-    private CommonTableExpression<Record6<Long, Long, String, Long, String, String>> getExistingOwnersCTE(CommonTableExpression<Record6<Long, Long, String, String, String, String>> inScopeSurveys) {
+    private CommonTableExpression<Record6<Long, Long, String, Long, String, String>> getExistingOwnersCTE(CommonTableExpression<Record6<Long, Long, String, Long, Long, String>> inScopeSurveys) {
         return DSL
                 .name("existingOwners")
                 .fields("survey_instance_id", "person_id", "entity_kind", "entity_id", "template_name", "person_email")
@@ -858,28 +991,21 @@ public class SurveyInstanceDao {
                         .innerJoin(p).on(sio.PERSON_ID.eq(p.ID)));
     }
 
-    private CommonTableExpression<Record6<Long, Long, String, String, String, String>> getInScopeSurveysCTE() {
+    private CommonTableExpression<Record6<Long, Long, String, Long, Long, String>> getInScopeSurveysCTE(Set<SurveyInstanceStatus> allowedSurveyStatuses) {
         return DSL
                 .name("inScopeSurveys")
                 .as(DSL
-                        .select(si.ID, si.ENTITY_ID, si.ENTITY_KIND, sr.INVOLVEMENT_KIND_IDS, sr.OWNER_INV_KIND_IDS, st.NAME)
+                        .select(si.ID, si.ENTITY_ID, si.ENTITY_KIND, sr.RECIPIENT_INVOLVEMENT_GROUP_ID, sr.OWNER_INVOLVEMENT_GROUP_ID, st.NAME)
                         .from(sr)
                         .innerJoin(st).on(sr.SURVEY_TEMPLATE_ID.eq(st.ID)
                                 .and(st.STATUS.eq(ReleaseLifecycleStatus.ACTIVE.name())))
                         .innerJoin(si).on(sr.ID.eq(si.SURVEY_RUN_ID)
-                                .and(si.STATUS.in(
-                                        SurveyInstanceStatus.NOT_STARTED.name(),
-                                        SurveyInstanceStatus.IN_PROGRESS.name(),
-                                        SurveyInstanceStatus.REJECTED.name()))));
+                                .and(si.STATUS.in(allowedSurveyStatuses))));
 
     }
 
 
-    public CommonTableExpression<Record6<Long, Long, String, Long, String, String>> getRequiredRecipientsCTE(CommonTableExpression<Record6<Long, Long, String, String, String, String>> inScopeSurveys) {
-
-        Field<String> surveyInvolvementsString = DSL.concat(DSL.val(";"), inScopeSurveys.field(sr.INVOLVEMENT_KIND_IDS), DSL.val(";"));
-        Field<String> involvementKindsString = DSL.concat(DSL.val("%;"), DSL.cast(ik.ID, String.class), DSL.val(";%"));
-
+    public CommonTableExpression<Record6<Long, Long, String, Long, String, String>> getRequiredRecipientsCTE(CommonTableExpression<Record6<Long, Long, String, Long, Long, String>> inScopeSurveys) {
         return DSL
                 .name("requiredRecipients")
                 .fields("survey_instance_id", "person_id", "entity_kind", "entity_id", "template_name", "person_email")
@@ -891,21 +1017,16 @@ public class SurveyInstanceDao {
                                 inScopeSurveys.field(st.NAME),
                                 p.EMAIL)
                         .from(inScopeSurveys)
-                        .innerJoin(ik).on(surveyInvolvementsString.like(involvementKindsString))
-                        .innerJoin(i).on(ik.ID.eq(i.KIND_ID)
+                        .innerJoin(ig).on(inScopeSurveys.field(sr.RECIPIENT_INVOLVEMENT_GROUP_ID).eq(ig.ID))
+                        .innerJoin(ige).on(ig.ID.eq(ige.INVOLVEMENT_GROUP_ID))
+                        .innerJoin(i).on(ige.INVOLVEMENT_KIND_ID.eq(i.KIND_ID)
                                 .and(i.ENTITY_KIND.eq(inScopeSurveys.field(si.ENTITY_KIND))
                                         .and(i.ENTITY_ID.eq(inScopeSurveys.field(si.ENTITY_ID)))))
                         .innerJoin(p).on(i.EMPLOYEE_ID.eq(p.EMPLOYEE_ID)
-                                .and(p.IS_REMOVED.isFalse()))
-                        .where(inScopeSurveys.field(sr.INVOLVEMENT_KIND_IDS).isNotNull()
-                                .and(inScopeSurveys.field(sr.INVOLVEMENT_KIND_IDS).ne(""))));
+                                .and(p.IS_REMOVED.isFalse())));
     }
 
-    private CommonTableExpression<Record6<Long, Long, String, Long, String, String>> getRequiredOwnersCTE(CommonTableExpression<Record6<Long, Long, String, String, String, String>> inScopeSurveys) {
-
-        Field<String> surveyInvolvementsString = DSL.concat(DSL.val(";"), inScopeSurveys.field(sr.OWNER_INV_KIND_IDS), DSL.val(";"));
-        Field<String> involvementKindsString = DSL.concat(DSL.val("%;"), DSL.cast(ik.ID, String.class), DSL.val(";%"));
-
+    private CommonTableExpression<Record6<Long, Long, String, Long, String, String>> getRequiredOwnersCTE(CommonTableExpression<Record6<Long, Long, String, Long, Long, String>> inScopeSurveys) {
         return DSL
                 .name("requiredOwners")
                 .fields("survey_instance_id", "person_id", "entity_kind", "entity_id", "template_name", "person_email")
@@ -917,13 +1038,12 @@ public class SurveyInstanceDao {
                                 inScopeSurveys.field(st.NAME),
                                 p.EMAIL)
                         .from(inScopeSurveys)
-                        .innerJoin(ik).on(surveyInvolvementsString.like(involvementKindsString))
-                        .innerJoin(i).on(ik.ID.eq(i.KIND_ID)
+                        .innerJoin(ig).on(inScopeSurveys.field(sr.OWNER_INVOLVEMENT_GROUP_ID).eq(ig.ID))
+                        .innerJoin(ige).on(ig.ID.eq(ige.INVOLVEMENT_GROUP_ID))
+                        .innerJoin(i).on(ige.INVOLVEMENT_KIND_ID.eq(i.KIND_ID)
                                 .and(i.ENTITY_KIND.eq(inScopeSurveys.field(si.ENTITY_KIND))
                                         .and(i.ENTITY_ID.eq(inScopeSurveys.field(si.ENTITY_ID)))))
                         .innerJoin(p).on(i.EMPLOYEE_ID.eq(p.EMPLOYEE_ID)
-                                .and(p.IS_REMOVED.isFalse()))
-                        .where(inScopeSurveys.field(sr.OWNER_INV_KIND_IDS).isNotNull()
-                                .and(inScopeSurveys.field(sr.OWNER_INV_KIND_IDS).ne(""))));
+                                .and(p.IS_REMOVED.isFalse())));
     }
 }

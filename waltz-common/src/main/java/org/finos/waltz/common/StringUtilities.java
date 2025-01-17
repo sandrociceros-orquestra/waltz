@@ -167,6 +167,13 @@ public class StringUtilities {
                 .trim();
     }
 
+    public static String upper(String value) {
+        checkNotNull(value, "value cannot be null");
+        return value
+                .toUpperCase()
+                .trim();
+    }
+
 
     public static char firstChar(String str, char dflt) {
         return mkSafe(str).length() > 0
@@ -293,6 +300,64 @@ public class StringUtilities {
                 "</tbody>" +
                 "</table>";
     }
+
+
+    /**
+     * Takes a string and returns null if the string was empty (spaces, empty string or null)
+     *
+     * @param str  the string to check
+     * @return  null iff the str was empty
+     */
+    public static String nullIfEmpty(String str) {
+        return isEmpty(str)
+                ? null
+                : str;
+    }
+
+
+    public static boolean isDefined(String str) {
+        return str != null && str.trim().length() > 0;
+    }
+
+
+    public static Optional<String> firstNonNull(String... xs) {
+        return Stream
+                .of(xs)
+                .filter(x -> isDefined(x))
+                .findFirst();
+    }
+
+
+    public static boolean safeEq(String expected, String actual) {
+        if(actual == null && expected == null) {
+            return true;
+        } else if(actual == null || expected == null) {
+            return false;
+        } else {
+            return actual.equals(expected);
+        }
+    }
+
+
+    public static boolean safeEqIgnoreCase(String expected, String actual) {
+        if(actual == null && expected == null) {
+            return true;
+        } else if(actual == null || expected == null) {
+            return false;
+        } else {
+            return actual.equalsIgnoreCase(expected);
+        }
+    }
+
+
+    public static String mkExternalId(String str) {
+        return sanitizeCharacters(mkSafe(str))
+                .toUpperCase()
+                .replaceAll("&", " AND ")
+                .replaceAll("[\\s\\-(){}/\\\\,.*;]", "_")
+                .replaceAll("_+", "_");
+    }
+
 
 }
 

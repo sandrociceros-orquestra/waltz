@@ -166,7 +166,7 @@ export const entity = {
     },
     END_USER_APPLICATION: {
         key: "END_USER_APPLICATION",
-        name: "End User App",
+        name: "End User Application",
         icon: "table",
         description: null,
         position: 1200
@@ -220,6 +220,13 @@ export const entity = {
         description: null,
         position: 1500
     },
+    INVOLVEMENT_GROUP: {
+        key: "INVOLVEMENT_GROUP",
+        name: "Involvement Group",
+        icon: "people-group",
+        description: null,
+        position: 1510
+    },
     INVOLVEMENT_KIND: {
         key: "INVOLVEMENT_KIND",
         name: "Involvement Kind",
@@ -269,6 +276,13 @@ export const entity = {
         description: null,
         position: 1600
     },
+    LOGICAL_DATA_FLOW_DATA_TYPE_DECORATOR: {
+        key: "LOGICAL_DATA_FLOW_DATA_TYPE_DECORATOR",
+        name: "Logical Flow Data Type",
+        icon: "barcode",
+        description: null,
+        position: 1650
+    },
     ORG_UNIT: {
         key: "ORG_UNIT",
         name: "Org Unit",
@@ -293,7 +307,7 @@ export const entity = {
     MEASURABLE_RATING: {
         key: "MEASURABLE_RATING",
         name: "Viewpoint Rating",
-        icon: undefined,
+        icon: "puzzle-piece",
         description: null,
         position: 1900
     },
@@ -311,6 +325,13 @@ export const entity = {
         description: null,
         position: 1960
     },
+    PERMISSION_GROUP: {
+        key: "PERMISSION_GROUP",
+        name: "Permission Group",
+        icon: "layer-group",
+        description: null,
+        position: 1970
+    },
     PERSON: {
         key: "PERSON",
         name: "Person",
@@ -325,10 +346,17 @@ export const entity = {
         description: null,
         position: 2100
     },
+    PHYSICAL_SPEC_DATA_TYPE_DECORATOR: {
+        key: "PHYSICAL_SPEC_DATA_TYPE_DECORATOR",
+        name: "Physical Specification Data Type",
+        icon: "barcode",
+        description: null,
+        position: 2150
+    },
     PHYSICAL_FLOW: {
         key: "PHYSICAL_FLOW",
         name: "Physical Flow",
-        icon: "qrcode",
+        icon: "arrows-turn-to-dots",
         description: null,
         position: 2200
     },

@@ -48,7 +48,7 @@ const initialState = {
     expandedNodes: [],
     checkedMap: {},
     hierarchy: [],
-    orderByExpression: "-name",
+    orderByExpression: ["-position", "-name"],
     onCheck: (id, node) => console.log("default handler in multi-select-treecontrol for node id check: ", id),
     onUncheck: (id, node) => console.log("default handler in multi-select-treecontrol for node id uncheck: ", id),
     onClick: (id, node) => console.log("default handler in multi-select-treecontrol for node click: ", node),
@@ -163,7 +163,7 @@ function controller() {
         vm.expandedNodes = termStr.length === 0
             ? expandSelectedNodes(vm.items, vm.expandedItemIds) // reset tree to 'normal' state
             : determineExpandedNodes(  // expand results, taking precautions to not expand too many nodes
-                m.hierarchy,
+                vm.hierarchy,
                 determineDepthLimit(matchingNodes.length));
     };
 

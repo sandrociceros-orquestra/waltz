@@ -21,6 +21,8 @@ import {CORE_API} from "../../../common/services/core-api-utils";
 import template from "./measurable-category-edit.html";
 import {toEntityRef} from "../../../common/entity-utils";
 import toasts from "../../../svelte-stores/toast-store";
+import BulkTaxonomyEditor from "../../components/bulk-taxonomy-editor/BulkTaxonomyEditor.svelte";
+import BulkRatingEditor from "../../../measurable-rating/components/bulk-rating-editor/BulkRatingEditor.svelte";
 
 
 const modes = {
@@ -29,15 +31,24 @@ const modes = {
     CHANGE_VIEW: "CHANGE_VIEW"
 };
 
+const tabs = {
+    INTERACTIVE_TAXONOMY: "INTERACTIVE_TAXONOMY",
+    BULK_TAXONOMY: "BULK_TAXONOMY",
+    BULK_RATING: "BULK_RATING"
+};
 
 const initialState = {
     changeDomain: null,
     measurables: [],
     selectedMeasurable: null,
+    selectedSiblings: [],
     selectedChange: null,
     recentlySelected: [],
     pendingChanges: [],
-    mode: modes.SUMMARY
+    mode: modes.SUMMARY,
+    activeTab: tabs.INTERACTIVE_TAXONOMY,
+    BulkTaxonomyEditor,
+    BulkRatingEditor
 };
 
 
@@ -72,6 +83,7 @@ function controller($q,
     const clearSelections = () => {
         vm.selectedMeasurable = null;
         vm.selectedChange = null;
+        vm.selectedSiblings = [];
     };
 
     const reloadMeasurables = () => {
@@ -83,9 +95,7 @@ function controller($q,
     // -- boot
 
     vm.$onInit = () => {
-        serviceBroker
-            .loadAppData(CORE_API.MeasurableStore.findAll)
-            .then(r => vm.measurables = _.filter(r.data, m => m.categoryId === categoryId));
+        reloadMeasurables();
 
         serviceBroker
             .loadAppData(CORE_API.MeasurableCategoryStore.findAll)
@@ -101,6 +111,11 @@ function controller($q,
         vm.mode = modes.NODE_VIEW;
         vm.recentlySelected = _.unionBy(vm.recentlySelected, [treeNode], d => d.id);
         vm.selectedMeasurable = treeNode;
+        vm.selectedSiblings = _
+            .chain(vm.measurables)
+            .filter(d => d.parentId === treeNode.parentId)
+            .orderBy([d => d.position, d => d.name])
+            .value();
     };
 
     vm.onDiscardPendingChange = (change) => {

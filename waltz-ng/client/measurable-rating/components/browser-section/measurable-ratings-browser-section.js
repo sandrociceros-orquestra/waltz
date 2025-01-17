@@ -51,20 +51,21 @@ function controller(serviceBroker, settingsService) {
         settingsService
             .findOrDefault(namedSettings.measurableRatingRoadmapsEnabled, true)
             .then(isEnabled => {
-                vm.roadmapsEnabled = !(isEnabled === 'false');
+                vm.roadmapsEnabled = !(isEnabled === "false");
             });
     }
 
     vm.$onInit = () => {
         determineIfRoadmapsAreEnabled();
-        vm.selector = mkSelectionOptions(vm.parentEntityRef,
+        vm.selector = mkSelectionOptions(
+            vm.parentEntityRef,
             undefined,
             undefined,
             vm.filters);
 
         serviceBroker
-            .loadViewData(CORE_API.ApplicationStore.findBySelector, [ vm.selector ])
-            .then(r => vm.hasApps = !_.isEmpty(r.data));
+            .loadViewData(CORE_API.MeasurableRatingStore.hasMeasurableRatings, [vm.selector])
+            .then(r => vm.hasApps = r.data);
 
         serviceBroker
             .loadAppData(CORE_API.AllocationSchemeStore.findAll)

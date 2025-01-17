@@ -19,6 +19,8 @@
 
 export default {
     authentication: "web.authentication",
+    oauthProviderName: "oauth.provider.name",
+    oauthDisableAnonymous: "oauth.disable.anonymous",
     devExtEnabled: "web.devext.enabled",
     httpHeaderPrefix: "web.devext.http.header.",
     betaEnvironment: "web.beta",
@@ -28,5 +30,6 @@ export default {
     avatarTemplateUrl: "ui.avatar.template.url",
     costExportEnabled: "feature.data-extractor.entity-cost.enabled",
     measurableRatingRoadmapsEnabled: "feature.measurable-rating-roadmaps.enabled",
-    overlayDiagramWidgetsDisabled: "feature.overlay-diagrams.disabled-widget-keys"
+    overlayDiagramWidgetsDisabled: "feature.overlay-diagrams.disabled-widget-keys",
+    defaultAppGridId: "feature.application-list.default-report-grid-id"
 };

@@ -25,9 +25,37 @@ import org.finos.waltz.model.EntityLifecycleStatus;
 import org.finos.waltz.model.EntityReference;
 import org.finos.waltz.model.application.ApplicationKind;
 import org.finos.waltz.model.application.LifecyclePhase;
-import org.finos.waltz.model.attestation.*;
+import org.finos.waltz.model.attestation.ApplicationAttestationInstanceSummary;
+import org.finos.waltz.model.attestation.ApplicationAttestationSummaryCounts;
+import org.finos.waltz.model.attestation.AttestEntityCommand;
+import org.finos.waltz.model.attestation.AttestationCount;
+import org.finos.waltz.model.attestation.AttestationInstance;
+import org.finos.waltz.model.attestation.ImmutableApplicationAttestationInstanceSummary;
+import org.finos.waltz.model.attestation.ImmutableApplicationAttestationSummaryCounts;
+import org.finos.waltz.model.attestation.ImmutableAttestationCount;
+import org.finos.waltz.model.attestation.ImmutableAttestationInstance;
+import org.finos.waltz.model.attestation.ImmutableLatestMeasurableAttestationInfo;
+import org.finos.waltz.model.attestation.ImmutableSyncRecipientsResponse;
+import org.finos.waltz.model.attestation.LatestMeasurableAttestationInfo;
+import org.finos.waltz.model.attestation.SyncRecipientsResponse;
 import org.finos.waltz.schema.tables.records.AttestationInstanceRecord;
-import org.jooq.*;
+import org.jooq.CommonTableExpression;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record;
+import org.jooq.Record1;
+import org.jooq.Record2;
+import org.jooq.Record3;
+import org.jooq.Record5;
+import org.jooq.RecordMapper;
+import org.jooq.Result;
+import org.jooq.Row2;
+import org.jooq.Select;
+import org.jooq.SelectConditionStep;
+import org.jooq.SelectJoinStep;
+import org.jooq.SelectOnConditionStep;
+import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.jooq.lambda.tuple.Tuple2;
 import org.jooq.lambda.tuple.Tuple3;
@@ -45,10 +73,12 @@ import java.util.Optional;
 import java.util.Set;
 
 import static java.lang.String.format;
-import static java.util.stream.Collectors.*;
+import static java.util.stream.Collectors.counting;
+import static java.util.stream.Collectors.groupingBy;
+import static java.util.stream.Collectors.mapping;
+import static java.util.stream.Collectors.toSet;
 import static org.finos.waltz.common.Checks.checkNotNull;
 import static org.finos.waltz.common.ListUtilities.newArrayList;
-import static org.finos.waltz.common.StringUtilities.splitThenMap;
 import static org.finos.waltz.model.EntityReference.mkRef;
 import static org.finos.waltz.schema.Tables.*;
 import static org.finos.waltz.schema.tables.Application.APPLICATION;
@@ -284,22 +314,12 @@ public class AttestationInstanceDao {
 
     private Set<Tuple2<Long, Long>> getAttestationRunIdToInvKindId() {
         return dsl
-                .select(ATTESTATION_RUN.ID, ATTESTATION_RUN.INVOLVEMENT_KIND_IDS)
+                .select(ATTESTATION_RUN.ID, INVOLVEMENT_GROUP_ENTRY.INVOLVEMENT_KIND_ID)
                 .from(ATTESTATION_RUN)
-                .where(ATTESTATION_RUN.INVOLVEMENT_KIND_IDS.isNotNull())
-                .and(ATTESTATION_RUN.INVOLVEMENT_KIND_IDS.ne(""))
-                .fetch()
-                .stream()
-                .flatMap(r -> {
-                    Long runId = r.get(ATTESTATION_RUN.ID);
-                    String invKinds = r.get(ATTESTATION_RUN.INVOLVEMENT_KIND_IDS);
-                    return splitThenMap(
-                            invKinds,
-                            ";",
-                            d -> tuple(runId, Long.valueOf(d.trim())))
-                            .stream();
-                })
-                .collect(toSet());
+                .innerJoin(INVOLVEMENT_GROUP_ENTRY)
+                .on(ATTESTATION_RUN.RECIPIENT_INVOLVEMENT_GROUP_ID.eq(INVOLVEMENT_GROUP_ENTRY.INVOLVEMENT_GROUP_ID))
+                .where(ATTESTATION_RUN.RECIPIENT_INVOLVEMENT_GROUP_ID.isNotNull())
+                .fetchSet(r -> tuple(r.get(ATTESTATION_RUN.ID), r.get(INVOLVEMENT_GROUP_ENTRY.INVOLVEMENT_KIND_ID)));
     }
 
 

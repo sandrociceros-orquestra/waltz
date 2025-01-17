@@ -17,7 +17,6 @@
   -->
 
 <div>
-
     <waltz-page-header name="Playpen"
                        small="1"
                        icon="rocket">
@@ -26,6 +25,14 @@
             <li>Playpen</li>
         </ol>
     </waltz-page-header>
+    <waltz-section>
+        <div class="row" >
+            <div class="col-md-12">
+                <waltz-svelte-component component="$ctrl.CounterpartPicker">
+                </waltz-svelte-component>
+            </div>
+        </div>
+    </waltz-section>
 
 
 

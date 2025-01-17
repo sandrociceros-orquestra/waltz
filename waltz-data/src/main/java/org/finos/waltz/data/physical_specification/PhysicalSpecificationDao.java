@@ -19,23 +19,43 @@
 package org.finos.waltz.data.physical_specification;
 
 import org.finos.waltz.data.InlineSelectFieldFactory;
-import org.finos.waltz.model.*;
+import org.finos.waltz.model.EntityKind;
+import org.finos.waltz.model.EntityLifecycleStatus;
+import org.finos.waltz.model.EntityReference;
+import org.finos.waltz.model.Operation;
+import org.finos.waltz.model.Severity;
+import org.finos.waltz.model.UserTimestamp;
 import org.finos.waltz.model.physical_flow.PhysicalFlowParsed;
 import org.finos.waltz.model.physical_specification.DataFormatKindValue;
 import org.finos.waltz.model.physical_specification.ImmutablePhysicalSpecification;
 import org.finos.waltz.model.physical_specification.PhysicalSpecification;
 import org.finos.waltz.model.user.SystemRole;
 import org.finos.waltz.schema.tables.DataType;
-import org.finos.waltz.schema.tables.*;
+import org.finos.waltz.schema.tables.LogicalFlow;
+import org.finos.waltz.schema.tables.LogicalFlowDecorator;
+import org.finos.waltz.schema.tables.PhysicalFlow;
+import org.finos.waltz.schema.tables.PhysicalSpecDataType;
 import org.finos.waltz.schema.tables.records.PhysicalSpecificationRecord;
-import org.jooq.*;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record;
+import org.jooq.Record1;
+import org.jooq.Record3;
+import org.jooq.Record4;
+import org.jooq.Record6;
+import org.jooq.RecordMapper;
+import org.jooq.Select;
+import org.jooq.SelectConditionStep;
+import org.jooq.SelectHavingConditionStep;
+import org.jooq.SelectJoinStep;
+import org.jooq.SelectOrderByStep;
 import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
 import java.sql.Timestamp;
 import java.util.Collection;
-import java.util.List;
 import java.util.Set;
 
 import static org.finos.waltz.common.Checks.checkFalse;
@@ -54,7 +74,12 @@ import static org.finos.waltz.schema.tables.LogicalFlowDecorator.LOGICAL_FLOW_DE
 import static org.finos.waltz.schema.tables.PhysicalFlow.PHYSICAL_FLOW;
 import static org.finos.waltz.schema.tables.PhysicalSpecDataType.PHYSICAL_SPEC_DATA_TYPE;
 import static org.finos.waltz.schema.tables.PhysicalSpecification.PHYSICAL_SPECIFICATION;
-import static org.jooq.impl.DSL.*;
+import static org.jooq.impl.DSL.concat;
+import static org.jooq.impl.DSL.count;
+import static org.jooq.impl.DSL.exists;
+import static org.jooq.impl.DSL.notExists;
+import static org.jooq.impl.DSL.select;
+import static org.jooq.impl.DSL.val;
 
 @Repository
 public class PhysicalSpecificationDao {
@@ -89,6 +114,7 @@ public class PhysicalSpecificationDao {
                 .provenance(record.getProvenance())
                 .isRemoved(record.getIsRemoved())
                 .created(UserTimestamp.mkForUser(record.getCreatedBy(), record.getCreatedAt()))
+                .isReadOnly(record.getIsReadonly())
                 .build();
     };
 
@@ -144,9 +170,15 @@ public class PhysicalSpecificationDao {
     }
 
 
-    public List<PhysicalSpecification> findBySelector(Select<Record1<Long>> selector) {
+    public Set<PhysicalSpecification> findBySelector(Select<Record1<Long>> selector) {
         return basicSelectByCondition(PHYSICAL_SPECIFICATION.ID.in(selector))
-                .fetch(TO_DOMAIN_MAPPER);
+                .fetchSet(TO_DOMAIN_MAPPER);
+    }
+
+
+    public Collection<PhysicalSpecification> findByExternalId(String externalId) {
+        return basicSelectByCondition(PHYSICAL_SPECIFICATION.EXTERNAL_ID.eq(externalId))
+                .fetchSet(TO_DOMAIN_MAPPER);
     }
 
 
@@ -188,7 +220,6 @@ public class PhysicalSpecificationDao {
         record.setOwningEntityId(specification.owningEntity().id());
 
         record.setName(specification.name());
-        record.setExternalId(specification.externalId().orElse(""));
         record.setDescription(specification.description());
         record.setFormat(specification.format().value());
         record.setLastUpdatedAt(Timestamp.valueOf(specification.lastUpdatedAt()));
@@ -198,6 +229,9 @@ public class PhysicalSpecificationDao {
 
         record.setCreatedAt(specification.created().get().atTimestamp());
         record.setCreatedBy(specification.created().get().by());
+        record.setIsReadonly(specification.isReadOnly());
+
+        specification.externalId().ifPresent(record::setExternalId);
 
         record.store();
         return record.getId();
@@ -220,7 +254,8 @@ public class PhysicalSpecificationDao {
         return dsl
                 .update(PHYSICAL_SPECIFICATION)
                 .set(PHYSICAL_SPECIFICATION.EXTERNAL_ID, externalId)
-                .where(PHYSICAL_SPECIFICATION.ID.eq(specificationId))
+                .where(PHYSICAL_SPECIFICATION.ID.eq(specificationId)
+                        .and(PHYSICAL_SPECIFICATION.IS_READONLY.isFalse()))
                 .execute();
     }
 
@@ -237,7 +272,8 @@ public class PhysicalSpecificationDao {
         return dsl
                 .update(PHYSICAL_SPECIFICATION)
                 .set(PHYSICAL_SPECIFICATION.IS_REMOVED, false)
-                .where(PHYSICAL_SPECIFICATION.ID.eq(specificationId))
+                .where(PHYSICAL_SPECIFICATION.ID.eq(specificationId)
+                        .and(PHYSICAL_SPECIFICATION.IS_READONLY.isFalse()))
                 .execute();
     }
 
@@ -380,7 +416,8 @@ public class PhysicalSpecificationDao {
         return dsl
                 .update(PHYSICAL_SPECIFICATION)
                 .set(PHYSICAL_SPECIFICATION.FORMAT, format.value())
-                .where(PHYSICAL_SPECIFICATION.ID.eq(specId))
+                .where(PHYSICAL_SPECIFICATION.ID.eq(specId)
+                        .and(PHYSICAL_SPECIFICATION.IS_READONLY.isFalse()))
                 .execute();
     }
 
@@ -389,7 +426,8 @@ public class PhysicalSpecificationDao {
         return dsl
                 .update(PHYSICAL_SPECIFICATION)
                 .set(PHYSICAL_SPECIFICATION.DESCRIPTION, description)
-                .where(PHYSICAL_SPECIFICATION.ID.eq(specId))
+                .where(PHYSICAL_SPECIFICATION.ID.eq(specId)
+                        .and(PHYSICAL_SPECIFICATION.IS_READONLY.isFalse()))
                 .execute();
     }
 
@@ -409,4 +447,5 @@ public class PhysicalSpecificationDao {
             return operationsForEntity;
         }
     }
+
 }

@@ -18,12 +18,13 @@
 
 <div class="waltz-entity-selector">
     <ui-select class="waltz-entity-selector"
+               style="width: 100%"
                ng-model="$ctrl.currentSelection"
                on-select="$ctrl.select($item)"
                theme="bootstrap"
                ng-required="$ctrl.required">
 
-        <ui-select-match placeholder="Search..."
+        <ui-select-match placeholder="{{$ctrl.placeholder}}"
                          allow-clear="{{$ctrl.clearable}}">
             <waltz-icon fixed-width="true"
                         ng-if="$ctrl.entityKinds.length > 1"

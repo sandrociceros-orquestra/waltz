@@ -1,4 +1,5 @@
 <script>
+    import _ from "lodash";
     import PageHeader from "../../../common/svelte/PageHeader.svelte";
     import ViewLink from "../../../common/svelte/ViewLink.svelte";
     import EntityIcon from "../../../common/svelte/EntityIcon.svelte";
@@ -14,6 +15,7 @@
     import RatingSchemePreviewBar from "../ratings-schemes/ItemPreviewBar.svelte";
     import {selectedDefinition} from "./assessment-definition-utils";
     import {onMount} from "svelte";
+    import {entity} from "../../../common/services/enums/entity";
 
 
     const definitionsCall = assessmentDefinitionStore.loadAll();
@@ -88,8 +90,10 @@
         activeMode = Modes.EDIT;
     }
 
+    $: assessmentDefinitions = $definitionsCall.data;
+
     $: definitionList = _
-        .chain(termSearch($definitionsCall.data, qry, ["name", "entityKind"]))
+        .chain(termSearch(assessmentDefinitions, qry, ["name", "entityKind"]))
         .orderBy("name")
         .value();
 
@@ -145,64 +149,68 @@
         {:else }
         <div class="col-md-12">
             <SearchInput bind:value={qry}/>
-            <table class="table table-condensed table-striped table-hover"
-                   style="table-layout: fixed">
-                <thead>
-                <tr>
-                    <th style="width:25%">Name</th>
-                    <th style="width:25%">Rating Scheme</th>
-                    <th style="width:20%">Applicable Kind</th>
-                    <th style="width:30%">Operations</th>
-                </tr>
-                </thead>
-                <tbody>
-                {#each definitionList as def}
+            <div class:waltz-scroll-region-500={_.size(assessmentDefinitions) > 10}>
+                <table class="table table-condensed table-striped table-hover"
+                       style="table-layout: fixed">
+                    <thead>
                     <tr>
-                        <td>
+                        <th style="width:25%">Name</th>
+                        <th style="width:25%">Rating Scheme</th>
+                        <th style="width:20%">Applicable Kind</th>
+                        <th style="width:30%">Operations</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {#each definitionList as def}
+                        <tr>
+                            <td>
                             <span title={def.description}>
                                 {def.name}
                             </span>
-                            {#if def.isReadOnly}
+                                {#if def.isReadOnly}
                                 <span class="text-muted">
                                     <Icon name="lock"/>
                                 </span>
-                            {/if}
+                                {/if}
 
-                        </td>
-                        <td>
-                            <RatingSchemePreviewBar items={ratingSchemesById[def.ratingSchemeId]?.ratings}/>
-                        </td>
-                        <td>
-                            <EntityIcon kind={def.entityKind}/>
-                            {def.entityKind}
-                        </td>
-                        <td>
-                            <button class="btn-link"
-                                    on:click={() => onEdit(def)}>
-                                <Icon name="edit"/>
-                                Edit
-                            </button>
-                            |
-                            <button class="btn-link"
-                                    on:click={() => onDelete(def)}>
-                                <Icon name="trash"/>
-                                Delete
-                            </button>
-                            |
-                            <a href="assessment-definition/{def.id}">
-                                <Icon name="table"/>
-                                View Data
-                            </a>
-                        </td>
-                    </tr>
-                {/each}
-                </tbody>
-            </table>
-            <button class="btn-link"
-                    on:click={mkNew}>
-                <Icon name="plus"/>
-                Add new assessment definition
-            </button>
+                            </td>
+                            <td>
+                                <RatingSchemePreviewBar items={ratingSchemesById[def.ratingSchemeId]?.ratings}/>
+                            </td>
+                            <td>
+                                <EntityIcon kind={def.entityKind}/>
+                                {_.get(entity, [def.entityKind, "name"], def.entityKind)}
+                            </td>
+                            <td>
+                                <button class="btn-link"
+                                        on:click={() => onEdit(def)}>
+                                    <Icon name="edit"/>
+                                    Edit
+                                </button>
+                                |
+                                <button class="btn-link"
+                                        on:click={() => onDelete(def)}>
+                                    <Icon name="trash"/>
+                                    Delete
+                                </button>
+                                |
+                                <a href="assessment-definition/{def.id}">
+                                    <Icon name="table"/>
+                                    View Data
+                                </a>
+                            </td>
+                        </tr>
+                    {/each}
+                    </tbody>
+                </table>
+            </div>
+            <div style="padding-top: 2em">
+                <button class="btn btn-primary"
+                        on:click={mkNew}>
+                    <Icon name="plus"/>
+                    Add new assessment definition
+                </button>
+            </div>
         </div>
         {/if}
     </div>

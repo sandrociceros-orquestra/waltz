@@ -19,6 +19,7 @@
 import {initialiseData} from "../../common/index";
 import template from "./actor-overview.html";
 import Markdown from "../../common/svelte/Markdown.svelte";
+import AliasControl from "../../common/svelte/AliasControl.svelte";
 
 
 const bindings = {
@@ -27,6 +28,7 @@ const bindings = {
 
 
 const initialState = {
+    AliasControl,
     Markdown
 };
 
@@ -36,7 +38,7 @@ function controller() {
 
     vm.$onChanges = (changes) => {
         if (vm.actor) {
-            vm.entityRef = {
+            vm.parentEntityRef = {
                 kind: "ACTOR",
                 id: vm.actor.id
             };

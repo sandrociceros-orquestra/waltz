@@ -1,46 +1,52 @@
 <script>
+    import Icon from "../../../common/svelte/Icon.svelte";
+
     export let color;
     export let name;
     export let ratingGroup = null;
     export let description;
     export let showName = true;
     export let showGroup = false;
+    export let size = "xl";
 
 </script>
 
-
-<span title={description}>
-    <span class="cell"
-          style={`background-color: ${color};`}>
+<div title={description}
+     style="display: inline-block;">
+    <div style="display: inline-block"
+         class="stack-box fa-stack">
+        <span style={`color: ${color}`}>
+            <Icon {size} stack="1x" name="square"/>
+        </span>
+        <span style="color: #aaa">
+            <Icon {size} stack="1x" name="square-o"/>
+        </span>
+    </div>
+    <span>
+        {#if showGroup && ratingGroup}
+            <span class="group text-muted">
+                {ratingGroup} /
+            </span>
+        {/if}
+        {#if showName}
+            <span class="name">
+                {name}
+            </span>
+        {/if}
     </span>
-    {#if showGroup && ratingGroup}
-        <span class="group text-muted">
-            {ratingGroup} /
-        </span>
-    {/if}
-    {#if showName}
-        <span class="name">
-            {name}
-        </span>
-    {/if}
-</span>
+</div>
+
+
 
 
 <style>
-    .cell {
-        top: 4px;
-        display: inline-block;
-        width: 1em;
-        height: 1em;
-        border: 1px solid;
-        border-radius: 2px;
+
+    .stack-box {
+        position: relative;
+        vertical-align: middle;
+        height: 1.25em !important;
+        line-height: 1.25em !important;
+        width: 1.25em !important;
     }
 
-    .name {
-        position: relative;
-    }
-
-    .group {
-        position: relative;
-    }
 </style>

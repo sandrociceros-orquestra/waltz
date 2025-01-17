@@ -27,8 +27,7 @@ const initialState = {
 
 
 function controller($document,
-                    appGroupStore,
-                    localStorageService) {
+                    appGroupStore) {
 
     const vm = Object.assign(this, initialState);
 
@@ -36,17 +35,13 @@ function controller($document,
         .findMyGroupSubscriptions()
         .then(groupSubscriptions => vm.appGroupSubscriptions = groupSubscriptions);
 
-    vm.history = localStorageService
-        .get("history_2") || [];
-
     document.title = "Waltz: Home";
 
 }
 
 controller.$inject = [
     "$document",
-    "AppGroupStore",
-    "localStorageService"
+    "AppGroupStore"
 ];
 
 

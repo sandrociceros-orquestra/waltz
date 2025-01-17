@@ -20,16 +20,31 @@ package org.finos.waltz.data.rating_scheme;
 
 import org.finos.waltz.model.EntityKind;
 import org.finos.waltz.model.EntityReference;
-import org.finos.waltz.model.rating.*;
+import org.finos.waltz.model.rating.ImmutableRatingScheme;
+import org.finos.waltz.model.rating.ImmutableRatingSchemeItem;
+import org.finos.waltz.model.rating.ImmutableRatingSchemeItemUsageCount;
+import org.finos.waltz.model.rating.RatingScheme;
+import org.finos.waltz.model.rating.RatingSchemeItem;
+import org.finos.waltz.model.rating.RatingSchemeItemUsageCount;
 import org.finos.waltz.schema.Tables;
 import org.finos.waltz.schema.tables.records.RatingSchemeItemRecord;
 import org.finos.waltz.schema.tables.records.RatingSchemeRecord;
-import org.jooq.*;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record;
+import org.jooq.Record4;
+import org.jooq.RecordMapper;
+import org.jooq.SelectHavingStep;
 import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 import static java.util.Collections.emptyList;
 import static java.util.Optional.ofNullable;
@@ -56,7 +71,8 @@ public class RatingSchemeDAO {
 
         RatingSchemeItemRecord r = record.into(RATING_SCHEME_ITEM);
 
-        ImmutableRatingSchemeItem.Builder builder = ImmutableRatingSchemeItem.builder()
+        ImmutableRatingSchemeItem.Builder builder = ImmutableRatingSchemeItem
+                .builder()
                 .id(r.getId())
                 .ratingSchemeId(r.getSchemeId())
                 .name(r.getName())
@@ -66,7 +82,8 @@ public class RatingSchemeDAO {
                 .position(r.getPosition())
                 .description(r.getDescription())
                 .externalId(ofNullable(r.getExternalId()))
-                .ratingGroup(r.getRatingGroup());
+                .ratingGroup(r.getRatingGroup())
+                .requiresComment(r.getRequiresComment());
 
 
         if (record.field(IS_RESTRICTED_FIELD) != null){
@@ -146,7 +163,7 @@ public class RatingSchemeDAO {
                 .fetch(TO_ITEM_MAPPER);
     }
 
-    public RatingSchemeItem getRatingSchemeItemById(long id){
+    public RatingSchemeItem getRatingSchemeItemById(long id) {
         checkNotNull(id, "id cannot be null");
         return dsl
                 .selectFrom(RATING_SCHEME_ITEM)
@@ -155,7 +172,17 @@ public class RatingSchemeDAO {
     }
 
 
-    public List<RatingSchemeItem> findRatingSchemeItemsForEntityAndCategory(EntityReference ref, long measurableCategoryId) {
+    /**
+     * Gives a list of permissible rating items for the given entity and category.
+     * This method takes into account any constraining assessment associated to the category.
+     * If the rating is constrained the <code>isRestricted</code> flag on the returned RatingSchemeItem will be set.
+     *
+     * @param ref                  the entity being checked
+     * @param measurableCategoryId the category being checked
+     * @return list of permissible rating items for the given entity and category
+     */
+    public List<RatingSchemeItem> findRatingSchemeItemsForEntityAndCategory(EntityReference ref,
+                                                                            long measurableCategoryId) {
 
         Condition assessmentDefinitionJoinCondition = ASSESSMENT_DEFINITION.ID.eq(ASSESSMENT_RATING.ASSESSMENT_DEFINITION_ID)
                 .and(ASSESSMENT_RATING.ENTITY_ID.eq(ref.id())
@@ -179,6 +206,14 @@ public class RatingSchemeDAO {
         return dsl
                 .selectFrom(RATING_SCHEME_ITEM)
                 .where(RATING_SCHEME_ITEM.ID.in(ids))
+                .fetchSet(TO_ITEM_MAPPER);
+    }
+
+
+    public Set<RatingSchemeItem> findRatingSchemeItemsForSchemeIds(Set<Long> schemeIds) {
+        return dsl
+                .selectFrom(RATING_SCHEME_ITEM)
+                .where(RATING_SCHEME_ITEM.SCHEME_ID.in(schemeIds))
                 .fetchSet(TO_ITEM_MAPPER);
     }
 
@@ -212,6 +247,7 @@ public class RatingSchemeDAO {
         r.setPosition(item.position());
         r.setUserSelectable(item.userSelectable());
         r.setRatingGroup(item.ratingGroup());
+        r.setRequiresComment(item.requiresComment());
 
         item.externalId().ifPresent(r::setExternalId);
 
@@ -298,6 +334,5 @@ public class RatingSchemeDAO {
                         .count(res.get(3, Integer.class))
                         .build());
     }
-
 
 }

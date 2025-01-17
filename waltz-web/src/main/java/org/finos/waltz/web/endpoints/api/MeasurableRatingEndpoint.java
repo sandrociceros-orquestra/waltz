@@ -18,19 +18,31 @@
 
 package org.finos.waltz.web.endpoints.api;
 
+import org.finos.waltz.common.EnumUtilities;
 import org.finos.waltz.common.exception.InsufficientPrivelegeException;
 import org.finos.waltz.model.EntityKind;
 import org.finos.waltz.model.EntityReference;
+import org.finos.waltz.model.IdSelectionOptions;
 import org.finos.waltz.model.Operation;
 import org.finos.waltz.model.UserTimestamp;
-import org.finos.waltz.model.measurable_rating.*;
+import org.finos.waltz.model.application.MeasurableRatingsView;
+import org.finos.waltz.model.bulk_upload.BulkUpdateMode;
+import org.finos.waltz.model.bulk_upload.measurable_rating.BulkMeasurableRatingValidationResult;
+import org.finos.waltz.model.measurable_rating.ImmutableRemoveMeasurableRatingCommand;
+import org.finos.waltz.model.measurable_rating.MeasurableRating;
+import org.finos.waltz.model.measurable_rating.MeasurableRatingCategoryView;
+import org.finos.waltz.model.measurable_rating.MeasurableRatingStatParams;
+import org.finos.waltz.model.measurable_rating.MeasurableRatingView;
+import org.finos.waltz.model.measurable_rating.RemoveMeasurableRatingCommand;
 import org.finos.waltz.model.tally.MeasurableRatingTally;
 import org.finos.waltz.model.tally.Tally;
-import org.finos.waltz.service.measurable.MeasurableService;
+import org.finos.waltz.service.measurable_rating.BulkMeasurableItemParser.InputFormat;
+import org.finos.waltz.service.measurable_rating.BulkMeasurableRatingService;
 import org.finos.waltz.service.measurable_rating.MeasurableRatingService;
-import org.finos.waltz.service.permission.PermissionGroupService;
+import org.finos.waltz.service.measurable_rating.MeasurableRatingViewService;
 import org.finos.waltz.service.permission.permission_checker.MeasurableRatingPermissionChecker;
 import org.finos.waltz.service.user.UserRoleService;
+import org.finos.waltz.web.DatumRoute;
 import org.finos.waltz.web.ListRoute;
 import org.finos.waltz.web.endpoints.Endpoint;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,16 +52,26 @@ import spark.Response;
 
 import java.io.IOException;
 import java.util.Collection;
-import java.util.Map;
 import java.util.Set;
 
 import static org.finos.waltz.common.Checks.checkNotNull;
+import static org.finos.waltz.common.FunctionUtilities.time;
 import static org.finos.waltz.common.SetUtilities.asSet;
-import static org.finos.waltz.common.StringUtilities.firstChar;
 import static org.finos.waltz.model.EntityKind.MEASURABLE_RATING;
 import static org.finos.waltz.model.EntityReference.mkRef;
-import static org.finos.waltz.web.WebUtilities.*;
-import static org.finos.waltz.web.endpoints.EndpointUtilities.*;
+import static org.finos.waltz.web.WebUtilities.getEntityReference;
+import static org.finos.waltz.web.WebUtilities.getId;
+import static org.finos.waltz.web.WebUtilities.getLong;
+import static org.finos.waltz.web.WebUtilities.getUsername;
+import static org.finos.waltz.web.WebUtilities.mkPath;
+import static org.finos.waltz.web.WebUtilities.readBody;
+import static org.finos.waltz.web.WebUtilities.readIdSelectionOptionsFromBody;
+import static org.finos.waltz.web.WebUtilities.requireRole;
+import static org.finos.waltz.web.endpoints.EndpointUtilities.deleteForList;
+import static org.finos.waltz.web.endpoints.EndpointUtilities.getForDatum;
+import static org.finos.waltz.web.endpoints.EndpointUtilities.getForList;
+import static org.finos.waltz.web.endpoints.EndpointUtilities.postForDatum;
+import static org.finos.waltz.web.endpoints.EndpointUtilities.postForList;
 
 @Service
 public class MeasurableRatingEndpoint implements Endpoint {
@@ -58,36 +80,40 @@ public class MeasurableRatingEndpoint implements Endpoint {
 
 
     private final MeasurableRatingService measurableRatingService;
+    private final BulkMeasurableRatingService bulkMeasurableRatingService;
+    private final MeasurableRatingViewService measurableRatingViewService;
     private final MeasurableRatingPermissionChecker measurableRatingPermissionChecker;
-    private final MeasurableService measurableService;
     private final UserRoleService userRoleService;
-    private final PermissionGroupService permissionGroupService;
 
 
     @Autowired
     public MeasurableRatingEndpoint(MeasurableRatingService measurableRatingService,
+                                    BulkMeasurableRatingService bulkMeasurableRatingService,
+                                    MeasurableRatingViewService measurableRatingViewService,
                                     MeasurableRatingPermissionChecker measurableRatingPermissionChecker,
-                                    MeasurableService measurableService,
-                                    UserRoleService userRoleService,
-                                    PermissionGroupService permissionGroupService) {
+                                    UserRoleService userRoleService) {
 
         checkNotNull(measurableRatingService, "measurableRatingService cannot be null");
-        checkNotNull(measurableRatingService, "measurableService cannot be null");
         checkNotNull(userRoleService, "userRoleService cannot be null");
-        checkNotNull(permissionGroupService, "permissionGroupService cannot be null");
+        checkNotNull(measurableRatingViewService, "measurableRatingViewService cannot be null");
         checkNotNull(measurableRatingPermissionChecker, "measurableRatingPermissionChecker cannot be null");
 
         this.measurableRatingService = measurableRatingService;
-        this.measurableService = measurableService;
-        this.permissionGroupService = permissionGroupService;
         this.measurableRatingPermissionChecker = measurableRatingPermissionChecker;
+        this.measurableRatingViewService = measurableRatingViewService;
+        this.bulkMeasurableRatingService = bulkMeasurableRatingService;
         this.userRoleService = userRoleService;
     }
 
 
     @Override
     public void register() {
+
+        String getByIdPath = mkPath(BASE_URL, "id", ":id");
+        String getViewByIdPath = mkPath(BASE_URL, "id", ":id", "view");
         String findForEntityPath = mkPath(BASE_URL, "entity", ":kind", ":id");
+        String getViewForCategoryAndAppSelectorPath = mkPath(BASE_URL, "category", ":id", "view");
+        String getPrimaryRatingsViewForAppSelectorPath = mkPath(BASE_URL, "primary-ratings", "view");
         String modifyMeasurableForEntityPath = mkPath(BASE_URL, "entity", ":kind", ":id", "measurable", ":measurableId");
         String modifyCategoryForEntityPath = mkPath(BASE_URL, "entity", ":kind", ":id", "category", ":categoryId");
         String findByMeasurableSelectorPath = mkPath(BASE_URL, "measurable-selector");
@@ -95,7 +121,23 @@ public class MeasurableRatingEndpoint implements Endpoint {
         String findByCategoryPath = mkPath(BASE_URL, "category", ":id");
         String countByMeasurableCategoryPath = mkPath(BASE_URL, "count-by", "measurable", "category", ":id");
         String statsByAppSelectorPath = mkPath(BASE_URL, "stats-by", "app-selector");
-        String statsForRelatedMeasurablePath = mkPath(BASE_URL, "related-stats", "measurable");
+        String hasMeasurableRatingsPath = mkPath(BASE_URL, "has-measurable-ratings");
+
+        String saveRatingItemPath = mkPath(BASE_URL, "entity", ":kind", ":id", "measurable", ":measurableId", "rating");
+        String saveRatingDescriptionPath = mkPath(BASE_URL, "entity", ":kind", ":id", "measurable", ":measurableId", "description");
+        String saveRatingIsPrimaryPath = mkPath(BASE_URL, "entity", ":kind", ":id", "measurable", ":measurableId", "is-primary");
+
+        String bulkRatingPreviewPath = mkPath(BASE_URL, "bulk", "preview", "MEASURABLE_CATEGORY", ":id");
+        String bulkRatingApplyPath = mkPath(BASE_URL, "bulk", "apply", "MEASURABLE_CATEGORY", ":id");
+
+        registerPreviewBulkMeasurableRatingChanges(bulkRatingPreviewPath);
+        registerApplyBulkMeasurableRatingChanges(bulkRatingApplyPath);
+
+        DatumRoute<MeasurableRating> getByIdRoute = (request, response)
+                -> measurableRatingService.getById(getId(request));
+
+        DatumRoute<MeasurableRatingView> getViewByIdRoute = (request, response)
+                -> measurableRatingViewService.getViewById(getId(request));
 
         ListRoute<MeasurableRating> findForEntityRoute = (request, response)
                 -> measurableRatingService.findForEntity(getEntityReference(request));
@@ -106,6 +148,17 @@ public class MeasurableRatingEndpoint implements Endpoint {
         ListRoute<MeasurableRating> findByAppSelectorRoute = (request, response)
                 -> measurableRatingService.findByAppIdSelector(readIdSelectionOptionsFromBody(request));
 
+        DatumRoute<MeasurableRatingCategoryView> getViewByCategoryAndAppSelectorRoute = (request, response) -> {
+            IdSelectionOptions idSelectionOptions = readIdSelectionOptionsFromBody(request);
+            long categoryId = getId(request);
+            return time("viewForCatAndSelector", () -> measurableRatingViewService.getViewForCategoryAndSelector(idSelectionOptions, categoryId));
+        };
+
+        DatumRoute<MeasurableRatingsView> getPrimaryRatingsViewForAppSelectorRoute = (request, response) -> {
+            IdSelectionOptions idSelectionOptions = readIdSelectionOptionsFromBody(request);
+            return measurableRatingViewService.getPrimaryRatingsView(idSelectionOptions);
+        };
+
         ListRoute<MeasurableRating> findByCategoryRoute = (request, response)
                 -> measurableRatingService.findByCategory(getId(request));
 
@@ -113,22 +166,71 @@ public class MeasurableRatingEndpoint implements Endpoint {
                 -> measurableRatingService.tallyByMeasurableCategoryId(getId(request));
 
         ListRoute<MeasurableRatingTally> statsByAppSelectorRoute = (request, response)
-                -> measurableRatingService.statsByAppSelector(readIdSelectionOptionsFromBody(request));
+                -> measurableRatingService.statsByAppSelector(readBody(request, MeasurableRatingStatParams.class));
 
-        ListRoute<MeasurableRatingTally> statsForRelatedMeasurableRoute = (request, response)
-                -> measurableRatingService.statsForRelatedMeasurable(readIdSelectionOptionsFromBody(request));
+        DatumRoute<Boolean> hasMeasurableRatingsRoute = (request, response)
+                -> measurableRatingService.hasMeasurableRatings(readIdSelectionOptionsFromBody(request));
 
+        getForDatum(getByIdPath, getByIdRoute);
+        getForDatum(getViewByIdPath, getViewByIdRoute);
         getForList(findForEntityPath, findForEntityRoute);
         postForList(findByMeasurableSelectorPath, findByMeasurableSelectorRoute);
         postForList(findByAppSelectorPath, findByAppSelectorRoute);
         getForList(findByCategoryPath, findByCategoryRoute);
-        postForList(modifyMeasurableForEntityPath, this::saveRoute);
         deleteForList(modifyMeasurableForEntityPath, this::removeRoute);
         deleteForList(modifyCategoryForEntityPath, this::removeCategoryRoute);
         getForList(countByMeasurableCategoryPath, countByMeasurableCategoryRoute);
-        postForList(statsForRelatedMeasurablePath, statsForRelatedMeasurableRoute);
+        postForDatum(hasMeasurableRatingsPath, hasMeasurableRatingsRoute);
         postForList(statsByAppSelectorPath, statsByAppSelectorRoute);
+
+        postForList(saveRatingItemPath, this::saveRatingItemRoute);
+        postForList(saveRatingDescriptionPath, this::saveRatingDescriptionRoute);
+        postForList(saveRatingIsPrimaryPath, this::saveRatingIsPrimaryRoute);
+        postForDatum(getViewForCategoryAndAppSelectorPath, getViewByCategoryAndAppSelectorRoute);
+        postForDatum(getPrimaryRatingsViewForAppSelectorPath, getPrimaryRatingsViewForAppSelectorRoute);
     }
+
+
+    private Collection<MeasurableRating> saveRatingDescriptionRoute(Request request, Response response) throws InsufficientPrivelegeException {
+        EntityReference entityRef = getEntityReference(request);
+        long measurableId = getLong(request, "measurableId");
+        String description = request.body();
+        String username = getUsername(request);
+        checkHasPermissionForThisOperation(entityRef, measurableId, asSet(Operation.UPDATE), username);
+
+        measurableRatingService.saveRatingDescription(entityRef, measurableId, description, username);
+        return measurableRatingService.findForEntity(entityRef);
+    }
+
+
+    private Collection<MeasurableRating> saveRatingIsPrimaryRoute(Request request, Response response) throws InsufficientPrivelegeException {
+        EntityReference entityRef = getEntityReference(request);
+        long measurableId = getLong(request, "measurableId");
+        boolean isPrimary = Boolean.parseBoolean(request.body());
+        String username = getUsername(request);
+        checkHasPermissionForThisOperation(entityRef, measurableId, asSet(Operation.UPDATE), username);
+
+        measurableRatingService.saveRatingIsPrimary(entityRef, measurableId, isPrimary, username);
+        return measurableRatingService.findForEntity(entityRef);
+    }
+
+
+    private Collection<MeasurableRating> saveRatingItemRoute(Request request, Response response) throws InsufficientPrivelegeException {
+        EntityReference entityRef = getEntityReference(request);
+        long measurableId = getLong(request, "measurableId");
+        String ratingCode = request.body();
+        String username = getUsername(request);
+        checkHasPermissionForThisOperation(entityRef, measurableId, asSet(Operation.UPDATE), username);
+
+        measurableRatingService.saveRatingItem(
+                entityRef,
+                measurableId,
+                ratingCode,
+                username);
+
+        return measurableRatingService.findForEntity(entityRef);
+    }
+
 
     private Collection<MeasurableRating> removeCategoryRoute(Request request, Response z) {
 
@@ -138,19 +240,6 @@ public class MeasurableRatingEndpoint implements Endpoint {
         requireRole(userRoleService, request, measurableRatingService.getRequiredRatingEditRole(mkRef(EntityKind.MEASURABLE_CATEGORY, categoryId)));
 
         return measurableRatingService.removeForCategory(ref, categoryId, getUsername(request));
-    }
-
-
-    private Collection<MeasurableRating> saveRoute(Request request, Response z) throws IOException, InsufficientPrivelegeException {
-        SaveMeasurableRatingCommand command = mkCommand(request);
-
-        Operation operation = measurableRatingService.checkRatingExists(command)
-                ? Operation.UPDATE
-                : Operation.ADD;
-
-        checkHasPermissionForThisOperation(command.entityReference(), command.measurableId(), asSet(operation), getUsername(request));
-
-        return measurableRatingService.save(command, false);
     }
 
 
@@ -171,23 +260,6 @@ public class MeasurableRatingEndpoint implements Endpoint {
     }
 
 
-    private SaveMeasurableRatingCommand mkCommand(Request request) throws IOException {
-        String username = getUsername(request);
-
-        Map<String, String> body = readBody(request, Map.class);
-
-        return ImmutableSaveMeasurableRatingCommand.builder()
-                .entityReference(getEntityReference(request))
-                .measurableId(getLong(request, "measurableId"))
-                .rating(firstChar(body.getOrDefault("rating", "Z"), 'Z'))
-                .previousRating(firstChar(body.getOrDefault("previousRating", "")))
-                .description(body.getOrDefault("description", ""))
-                .lastUpdate(UserTimestamp.mkForUser(username))
-                .provenance("waltz")
-                .build();
-    }
-
-
     private void checkHasPermissionForThisOperation(EntityReference parentRef,
                                                     Long measurableId,
                                                     Set<Operation> operations,
@@ -197,4 +269,28 @@ public class MeasurableRatingEndpoint implements Endpoint {
         measurableRatingPermissionChecker.verifyAnyPerms(operations, perms, MEASURABLE_RATING, username);
     }
 
+    private void registerPreviewBulkMeasurableRatingChanges(String path) {
+        postForDatum(path, (req, resp) -> {
+            EntityReference categoryRef = mkRef(EntityKind.MEASURABLE_CATEGORY, getId(req));
+            String modeStr = req.queryParams("mode");
+            String formatStr = req.queryParams("format");
+            BulkUpdateMode mode = EnumUtilities.readEnum(modeStr, BulkUpdateMode.class, s -> BulkUpdateMode.ADD_ONLY);
+            InputFormat format = EnumUtilities.readEnum(formatStr, InputFormat.class, s -> InputFormat.TSV);
+            String body = req.body();
+            return bulkMeasurableRatingService.bulkPreview(categoryRef, body, format, mode);
+        });
+    }
+
+    private void registerApplyBulkMeasurableRatingChanges(String path) {
+        postForDatum(path, (req, resp) -> {
+            EntityReference categoryRef = mkRef(EntityKind.MEASURABLE_CATEGORY, getId(req));
+            String modeStr = req.queryParams("mode");
+            String formatStr = req.queryParams("format");
+            BulkUpdateMode mode = EnumUtilities.readEnum(modeStr, BulkUpdateMode.class, s -> BulkUpdateMode.ADD_ONLY);
+            InputFormat format = EnumUtilities.readEnum(formatStr, InputFormat.class, s -> InputFormat.TSV);
+            String body = req.body();
+            BulkMeasurableRatingValidationResult preview = bulkMeasurableRatingService.bulkPreview(categoryRef, body, format, mode);
+            return bulkMeasurableRatingService.apply(categoryRef, preview, mode, getUsername(req));
+        });
+    }
 }

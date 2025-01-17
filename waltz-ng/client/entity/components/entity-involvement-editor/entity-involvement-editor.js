@@ -21,14 +21,12 @@ import {entity} from "../../../common/services/enums/entity";
 import {getEnumName} from "../../../common/services/enums";
 
 import template from "./entity-involvement-editor.html";
-import {displayError} from "../../../common/error-utils";
+import {CORE_API} from "../../../common/services/core-api-utils";
 
 const bindings = {
-    allowedInvolvements: "<",
     currentInvolvements: "<",
     parentEntityRef: "<",
     targetEntityKind: "<",
-
     onAdd: "<",
     onRemove: "<"
 };
@@ -36,19 +34,44 @@ const bindings = {
 
 const initialState = {
     allowedInvolvements: [],
-    currentInvolvement: {},
+    currentInvolvement: {
+        involvement: null,
+        entity: null
+    },
     currentInvolvements: [],
     parentEntityRef: null,
     targetEntityKind: null,
     targetEntityDisplayName: null,
-
     onAdd: () => console.log("default onAdd handler for entity-involvement-editor"),
     onRemove: () => console.log("default onRemove handler for entity-involvement-editor")
 };
 
 
-function controller() {
+function controller($q, serviceBroker, userService) {
     const vm = initialiseData(this, initialState);
+
+    vm.$onInit = () => {
+
+        const userRolesPromise = userService
+            .whoami()
+            .then(user => user.roles);
+
+        const kindPromise = serviceBroker
+            .loadAppData(CORE_API.InvolvementKindStore.findAll, [])
+            .then(r => r.data);
+
+        $q
+            .all([kindPromise, userRolesPromise])
+            .then(([involvementKinds = [], userRoles = []]) => {
+                vm.allowedInvolvements = _
+                    .chain(involvementKinds)
+                    .filter(ik => ik.userSelectable)
+                    .filter(ik => ik.subjectKind === vm.parentEntityRef.kind)
+                    .filter(ik => _.isEmpty(ik.permittedRole) || _.includes(userRoles, ik.permittedRole))
+                    .map(ik => ({value: ik.id, name: ik.name}))
+                    .value();
+            });
+    };
 
     vm.$onChanges = (changes) => {
         if(changes.targetEntityKind) {
@@ -69,14 +92,20 @@ function controller() {
     vm.onInvolvementAdd = () => {
         const currentInvolvement = vm.currentInvolvement;
         invokeFunction(vm.onAdd, currentInvolvement)
-            .catch(e => displayError(`Could not add person with involvement`, e));
-        vm.currentInvolvement = {};
+        vm.currentInvolvement = {
+            involvement: null,
+            entity: null
+        };
     };
 
 }
 
 
-controller.$inject = [];
+controller.$inject = [
+    "$q",
+    "ServiceBroker",
+    "UserService"
+];
 
 
 const component = {
